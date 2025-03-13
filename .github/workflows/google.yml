@@ -42,7 +42,7 @@ env:
   PROJECT_ID: 'retaildom' # TODO: update to your Google Cloud project ID
   GAR_LOCATION: 'us-east1' # TODO: update to your region
   GKE_CLUSTER: 'data-cleaner' # TODO: update to your cluster name
-  GKE_ZONE: 'us-central1-c' # TODO: update to your cluster zone
+  GKE_ZONE: 'us-central1' # TODO: update to your cluster zone
   DEPLOYMENT_NAME: 'data-cleaner-app' # TODO: update to your deployment name
   REPOSITORY: 'samples' # TODO: update to your Artifact Registry docker repository name
   IMAGE: 'static-site'
