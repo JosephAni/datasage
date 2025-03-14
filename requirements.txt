@@ -1,5 +1,11 @@
-pandas>=1.5.0
-numpy>=1.21.0
-streamlit>=1.22.0
-scikit-learn>=1.0.2
-openpyxl>=3.0.9  # for Excel file support 
+streamlit==1.31.1
+pandas==2.2.0
+numpy==1.26.3
+scikit-learn==1.4.0
+matplotlib==3.8.2
+seaborn==0.13.2
+scipy==1.12.0
+category_encoders==2.6.3
+statsmodels==0.14.1
+prophet==1.1.5
+plotly==5.18.0 

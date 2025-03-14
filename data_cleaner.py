@@ -1,14 +1,28 @@
 import pandas as pd
 import numpy as np
 import streamlit as st
-from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, LabelEncoder, PowerTransformer
 from sklearn.ensemble import IsolationForest
-from sklearn.impute import SimpleImputer
+from sklearn.impute import SimpleImputer, KNNImputer
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import accuracy_score, mean_squared_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
+from category_encoders import TargetEncoder
+from statsmodels.tsa.seasonal import seasonal_decompose
+from statsmodels.tsa.stattools import adfuller
+from prophet import Prophet
+
+# Add plotly for interactive plots
+try:
+    import plotly.express as px
+    import plotly.graph_objects as go
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("Plotly not installed. Install with 'pip install plotly' for interactive plots.")
 
 class DataCleaner:
     """
@@ -25,6 +39,7 @@ class DataCleaner:
         self.original_df = dataframe.copy()  # Keep original copy
         self.df = dataframe.copy()  # Working copy
         self.label_encoders = {}  # Store label encoders for categorical variables
+        self.transformers = {}  # Store transformers for numeric variables
 
     def handle_missing_values(self, strategy='mean', columns=None):
         """
@@ -59,11 +74,20 @@ class DataCleaner:
             contamination (float): The proportion of outliers in the data set.
         """
         if columns is None:
-            columns = self.df.select_dtypes(include=[np.number]).columns
+            # Only select columns that are actually numeric (excluding string-like numbers)
+            numeric_cols = []
+            for col in self.df.select_dtypes(include=[np.number]).columns:
+                try:
+                    # Try converting to float to verify it's actually numeric
+                    self.df[col].astype(float)
+                    numeric_cols.append(col)
+                except (ValueError, TypeError):
+                    st.warning(f"Column '{col}' contains non-numeric values and will be excluded from outlier detection.")
+            columns = numeric_cols
 
-        if not columns:
+        if len(columns) == 0:
             st.warning("No numeric columns available for outlier detection.")
-            return
+            return None
 
         # Create a copy of selected columns
         X = self.df[columns].copy()
@@ -82,6 +106,7 @@ class DataCleaner:
         
         st.write(f"### Outlier Detection Results")
         st.write(f"Found {n_outliers} potential outliers out of {len(self.df)} rows.")
+        st.write(f"Analyzed columns: {', '.join(columns)}")
         
         return self.df[self.df['is_outlier']]
 
@@ -458,6 +483,371 @@ class DataCleaner:
         for recommendation in recommendations:
             st.write(recommendation)
 
+    def advanced_imputation(self, strategy='knn', columns=None, n_neighbors=5):
+        """
+        Performs advanced imputation using various methods.
+
+        Args:
+            strategy (str): Imputation strategy ('knn', 'iterative', 'multivariate')
+            columns (list): List of columns to impute
+            n_neighbors (int): Number of neighbors for KNN imputation
+        """
+        if columns is None:
+            columns = self.df.columns[self.df.isnull().any()].tolist()
+
+        numeric_cols = self.df[columns].select_dtypes(include=[np.number]).columns
+        categorical_cols = self.df[columns].select_dtypes(exclude=[np.number]).columns
+
+        if strategy == 'knn' and len(numeric_cols) > 0:
+            # KNN imputation for numeric columns
+            imputer = KNNImputer(n_neighbors=n_neighbors)
+            self.df[numeric_cols] = imputer.fit_transform(self.df[numeric_cols])
+            st.info(f"Applied KNN imputation to numeric columns: {', '.join(numeric_cols)}")
+
+        # Handle categorical columns separately
+        if len(categorical_cols) > 0:
+            for col in categorical_cols:
+                mode_value = self.df[col].mode()[0]
+                self.df[col].fillna(mode_value, inplace=True)
+            st.info(f"Applied mode imputation to categorical columns: {', '.join(categorical_cols)}")
+
+    def transform_skewed_features(self, threshold=0.5, method='yeo-johnson'):
+        """
+        Transforms skewed numeric features using various methods.
+
+        Args:
+            threshold (float): Skewness threshold to determine which features to transform
+            method (str): Transformation method ('yeo-johnson', 'box-cox', 'log')
+        """
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+        skewed_features = {}
+
+        for col in numeric_cols:
+            skewness = stats.skew(self.df[col].dropna())
+            if abs(skewness) > threshold:
+                skewed_features[col] = skewness
+
+        if not skewed_features:
+            st.info("No features found with significant skewness.")
+            return
+
+        st.write("### Transforming Skewed Features")
+        st.write("Features with significant skewness:")
+        for col, skew in skewed_features.items():
+            st.write(f"- {col}: {skew:.2f}")
+
+        for col in skewed_features.keys():
+            if method == 'yeo-johnson':
+                transformer = PowerTransformer(method='yeo-johnson')
+                self.df[col] = transformer.fit_transform(self.df[[col]])
+                self.transformers[col] = transformer
+            elif method == 'log':
+                # Handle negative and zero values
+                min_val = self.df[col].min()
+                if min_val <= 0:
+                    self.df[col] = np.log1p(self.df[col] - min_val + 1)
+                else:
+                    self.df[col] = np.log1p(self.df[col])
+
+        st.success(f"Applied {method} transformation to {len(skewed_features)} features")
+
+    def handle_high_cardinality(self, max_categories=10, method='target_encoding', target_column=None):
+        """
+        Handles high-cardinality categorical features using various methods.
+
+        Args:
+            max_categories (int): Maximum number of categories to keep
+            method (str): Encoding method ('target_encoding', 'frequency', 'grouping')
+            target_column (str): Target column for target encoding
+        """
+        categorical_cols = self.df.select_dtypes(include=['object', 'category']).columns
+        high_cardinality_cols = []
+
+        for col in categorical_cols:
+            if self.df[col].nunique() > max_categories:
+                high_cardinality_cols.append(col)
+
+        if not high_cardinality_cols:
+            st.info("No high-cardinality categorical features found.")
+            return
+
+        st.write("### Handling High-Cardinality Features")
+        st.write(f"Found {len(high_cardinality_cols)} high-cardinality features:")
+        for col in high_cardinality_cols:
+            st.write(f"- {col}: {self.df[col].nunique()} unique values")
+
+        for col in high_cardinality_cols:
+            if method == 'target_encoding' and target_column:
+                encoder = TargetEncoder()
+                self.df[col] = encoder.fit_transform(self.df[col], self.df[target_column])
+            elif method == 'frequency':
+                value_counts = self.df[col].value_counts()
+                top_categories = value_counts.nlargest(max_categories).index
+                self.df[col] = self.df[col].apply(lambda x: x if x in top_categories else 'Other')
+            elif method == 'grouping':
+                value_counts = self.df[col].value_counts()
+                top_categories = value_counts.nlargest(max_categories-1).index
+                self.df[col] = self.df[col].apply(lambda x: x if x in top_categories else 'Other')
+
+        st.success(f"Applied {method} to {len(high_cardinality_cols)} high-cardinality features")
+
+    def analyze_time_series(self, date_column, value_column, frequency='D', use_interactive=True):
+        """
+        Performs time series analysis on the specified columns.
+
+        Args:
+            date_column (str): Name of the column containing dates
+            value_column (str): Name of the column containing values to analyze
+            frequency (str): Frequency of the time series ('D' for daily, 'M' for monthly, etc.)
+            use_interactive (bool): Whether to use interactive plots
+        """
+        try:
+            # Validate inputs
+            if date_column not in self.df.columns:
+                st.error(f"Date column '{date_column}' not found in the dataset.")
+                return
+            if value_column not in self.df.columns:
+                st.error(f"Value column '{value_column}' not found in the dataset.")
+                return
+
+            # Create a copy of the data to work with
+            ts_df = self.df[[date_column, value_column]].copy()
+
+            # Convert date column to datetime with explicit error handling
+            try:
+                # First, try to detect the date format from the first few non-null values
+                sample_dates = ts_df[date_column].dropna().head(5).astype(str).tolist()
+                
+                # Initialize format detection variables
+                has_time = any(':' in str(date) for date in sample_dates)
+                has_dash = any('-' in str(date) for date in sample_dates)
+                has_slash = any('/' in str(date) for date in sample_dates)
+                
+                # Try parsing with different approaches
+                try:
+                    # First try: Parse as ISO format
+                    ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='ISO8601', errors='raise')
+                except (ValueError, TypeError):
+                    try:
+                        # Second try: If we have time components, use a flexible parser
+                        if has_time:
+                            ts_df[date_column] = pd.to_datetime(ts_df[date_column], infer_datetime_format=True, errors='raise')
+                        # Third try: Use specific formats based on separators
+                        elif has_dash:
+                            ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='%Y-%m-%d', errors='raise')
+                        elif has_slash:
+                            # Try both MDY and YMD formats
+                            try:
+                                ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='%m/%d/%Y', errors='raise')
+                            except ValueError:
+                                try:
+                                    ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='%Y/%m/%d', errors='raise')
+                                except ValueError:
+                                    ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='%m/%d/%y', errors='raise')
+                        else:
+                            # Final try: Use mixed format with dayfirst=False
+                            ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='mixed', dayfirst=False, errors='raise')
+                    except (ValueError, TypeError):
+                        # If all specific formats fail, try the most flexible approach
+                        ts_df[date_column] = pd.to_datetime(ts_df[date_column], format='mixed', errors='coerce')
+
+                # Check for NaT values after conversion
+                nat_count = ts_df[date_column].isna().sum()
+                if nat_count > 0:
+                    st.warning(f"Found {nat_count} invalid date values. These rows will be removed.")
+                    # Show examples of problematic dates
+                    problem_dates = ts_df[ts_df[date_column].isna()][date_column].head()
+                    if not problem_dates.empty:
+                        st.write("Examples of problematic date values:")
+                        st.write(problem_dates)
+                    ts_df = ts_df.dropna(subset=[date_column])
+
+                if len(ts_df) == 0:
+                    st.error("No valid dates remaining after cleaning. Please check your date format.")
+                    return
+
+                # Show the date range of the data
+                st.info(f"Date range: from {ts_df[date_column].min()} to {ts_df[date_column].max()}")
+
+            except Exception as e:
+                st.error(f"Error converting dates: {str(e)}")
+                st.info("Please ensure your date column contains valid date values. Common formats include: YYYY-MM-DD, MM/DD/YYYY, or MM/DD/YY")
+                return
+
+            # Validate value column is numeric
+            if not pd.api.types.is_numeric_dtype(ts_df[value_column]):
+                st.error(f"Value column '{value_column}' must be numeric.")
+                return
+
+            # Sort by date and set index
+            ts_df = ts_df.sort_values(date_column)
+            ts_df.set_index(date_column, inplace=True)
+
+            # Check for sufficient data
+            if len(ts_df) < 2:
+                st.error("Insufficient data for time series analysis. Need at least 2 data points.")
+                return
+
+            st.write("### 📈 Time Series Analysis")
+
+            # Basic Time Series Plot
+            try:
+                st.write("#### Time Series Plot")
+                if PLOTLY_AVAILABLE and use_interactive:
+                    fig = px.line(
+                        ts_df.reset_index(),
+                        x=date_column,
+                        y=value_column,
+                        title=f'{value_column} Over Time'
+                    )
+                    fig.update_layout(
+                        xaxis_title='Date',
+                        yaxis_title=value_column,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    fig, ax = plt.subplots(figsize=(12, 6))
+                    ax.plot(ts_df.index, ts_df[value_column])
+                    plt.title(f'{value_column} Over Time')
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig)
+                    plt.close()
+            except Exception as e:
+                st.error(f"Error creating time series plot: {str(e)}")
+
+            # Add data aggregation options
+            st.write("#### Data Aggregation")
+            agg_method = st.selectbox(
+                "Select aggregation method:",
+                ["mean", "sum", "min", "max", "count"],
+                help="Choose how to aggregate data when resampling to the selected frequency"
+            )
+
+            # Resample data with error handling
+            try:
+                # Ensure the index is datetime type
+                if not isinstance(ts_df.index, pd.DatetimeIndex):
+                    ts_df.index = pd.to_datetime(ts_df.index)
+
+                # Resample with the selected method
+                resampled_df = getattr(ts_df.resample(frequency), agg_method)()
+
+                if resampled_df.empty:
+                    st.error(f"No data available after resampling with frequency '{frequency}'")
+                    return
+
+                # Show resampled data
+                st.write(f"#### Resampled Data ({frequency} frequency, {agg_method} aggregation)")
+                st.dataframe(resampled_df.head(10))
+
+                # Visualize resampled data
+                if PLOTLY_AVAILABLE and use_interactive:
+                    fig = px.line(
+                        resampled_df.reset_index(),
+                        x=resampled_df.index.name,
+                        y=value_column,
+                        title=f'Resampled {value_column} ({frequency} frequency, {agg_method})'
+                    )
+                    fig.update_layout(
+                        xaxis_title='Date',
+                        yaxis_title=value_column,
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+            except Exception as e:
+                st.error(f"Error in resampling data: {str(e)}")
+                st.info("Please check your date format and frequency settings.")
+                return
+
+            # Time Series Decomposition
+            try:
+                st.write("#### Time Series Decomposition")
+                
+                # Count number of observations after resampling
+                n_observations = len(resampled_df)
+                st.info(f"Number of observations after {frequency} frequency resampling: {n_observations}")
+                
+                # Check if we have enough observations for decomposition
+                min_period = 2  # Minimum period possible
+                
+                if n_observations < 4:  # Need at least 4 observations for decomposition
+                    st.error(f"Insufficient data for decomposition. Need at least 4 observations, but got {n_observations}.")
+                    st.info("Try using a different frequency with more data points (e.g., change from Monthly to Weekly).")
+                    return
+                
+                # Calculate max period based on data, ensuring it's at least 3
+                max_period = max(3, min(n_observations // 2, 24))  # Cap at 24 for reasonable seasonality
+                
+                # Safe calculation of suggested period
+                if frequency == 'D':
+                    suggested_period = min(7, max(2, min(n_observations // 4, max_period)))  # weekly
+                elif frequency == 'W':
+                    suggested_period = min(4, max(2, min(n_observations // 4, max_period)))  # monthly
+                elif frequency == 'M':
+                    suggested_period = min(12, max(2, min(n_observations // 4, max_period)))  # yearly
+                elif frequency == 'Q':
+                    suggested_period = min(4, max(2, min(n_observations // 4, max_period)))  # yearly
+                else:
+                    suggested_period = min(4, max(2, min(n_observations // 4, max_period)))
+                
+                # Ensure max_period is greater than min_period
+                max_period = max(min_period + 1, max_period)
+                suggested_period = min(max(min_period, suggested_period), max_period)
+                
+                # Let user adjust the period if needed
+                period = st.slider(
+                    "Select decomposition period (number of observations per cycle):",
+                    min_value=min_period,
+                    max_value=max_period,
+                    value=suggested_period,
+                    help="Adjust this value based on the expected seasonality in your data."
+                )
+                
+                # Perform decomposition with more robust error handling
+                try:
+                    decomposition = seasonal_decompose(
+                        resampled_df[value_column],
+                        period=period,
+                        extrapolate_trend='freq'
+                    )
+                    
+                    # Plot decomposition components
+                    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 12))
+                    
+                    ax1.plot(decomposition.observed)
+                    ax1.set_title('Observed')
+                    ax1.tick_params(axis='x', rotation=45)
+                    
+                    ax2.plot(decomposition.trend)
+                    ax2.set_title('Trend')
+                    ax2.tick_params(axis='x', rotation=45)
+                    
+                    ax3.plot(decomposition.seasonal)
+                    ax3.set_title('Seasonal')
+                    ax3.tick_params(axis='x', rotation=45)
+                    
+                    ax4.plot(decomposition.resid)
+                    ax4.set_title('Residual')
+                    ax4.tick_params(axis='x', rotation=45)
+                    
+                    plt.tight_layout()
+                    st.pyplot(fig)
+                    plt.close()
+                    
+                except Exception as decomp_error:
+                    st.error(f"Error during decomposition: {str(decomp_error)}")
+                    st.info("Try adjusting the period value or using a different frequency that better matches your data's seasonality pattern.")
+                    return
+
+            except Exception as e:
+                st.error(f"Error in time series decomposition: {str(e)}")
+                st.info("Try adjusting the frequency or period to match your data's seasonality pattern.")
+
+        except Exception as e:
+            st.error(f"Error in time series analysis: {str(e)}")
+            st.info("Please check your data format and try again.")
 
 def main():
     st.title("AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖")
@@ -471,6 +861,19 @@ def main():
                 df = pd.read_csv(uploaded_file)
             else:
                 df = pd.read_excel(uploaded_file)
+            
+            # Check for duplicate column names
+            if len(df.columns) != len(set(df.columns)):
+                st.warning("Duplicate column names detected in the dataset. Renaming columns to make them unique.")
+                
+                # Find and rename duplicate columns
+                cols = pd.Series(df.columns)
+                for dup in cols[cols.duplicated()].unique(): 
+                    cols[cols[cols == dup].index.values.tolist()] = [f"{dup}_{i}" if i != 0 else dup 
+                                                                    for i in range(sum(cols == dup))]
+                df.columns = cols
+                
+                st.info("Columns have been renamed. Duplicate columns now have suffixes (_1, _2, etc.)")
 
             st.write("Original DataFrame:")
             st.dataframe(df)
@@ -506,30 +909,38 @@ def main():
 
                 # Outlier Detection
                 if st.checkbox("Detect Outliers"):
-                    contamination = st.slider("Contamination factor:", 0.01, 0.5, 0.1, 0.01)
-                    outliers = cleaner.detect_outliers(contamination=contamination)
-                    if outliers is not None and not outliers.empty:
-                        st.write("#### Outlier Rows:")
-                        st.dataframe(outliers)
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    if len(numeric_cols) > 0:  # Check if there are any numeric columns
+                        contamination = st.slider("Contamination factor:", 0.01, 0.5, 0.1, 0.01)
+                        outliers = cleaner.detect_outliers(contamination=contamination)
+                        if outliers is not None and not outliers.empty:
+                            st.write("#### Outlier Rows:")
+                            st.dataframe(outliers)
+                    else:
+                        st.warning("No numeric columns available for outlier detection.")
 
                 # Feature Engineering
                 if st.checkbox("Encode Categorical Variables"):
-                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
                     if len(categorical_cols) > 0:
                         selected_cats = st.multiselect("Select categorical columns to encode:", categorical_cols)
                         if selected_cats:
                             cleaner.encode_categorical(selected_cats)
+                    else:
+                        st.warning("No categorical columns available for encoding.")
 
                 if st.checkbox("Scale Numeric Features"):
-                    numeric_cols = df.select_dtypes(include=[np.number]).columns
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                     if len(numeric_cols) > 0:
                         selected_nums = st.multiselect("Select numeric columns to scale:", numeric_cols)
                         if selected_nums:
                             cleaner.scale_features(selected_nums)
+                    else:
+                        st.warning("No numeric columns available for scaling.")
 
                 # Basic ML Model
                 if st.checkbox("Train Basic ML Model"):
-                    target_col = st.selectbox("Select target column:", df.columns)
+                    target_col = st.selectbox("Select target column:", df.columns.tolist())
                     problem_type = st.selectbox("Select problem type:", ['classification', 'regression'])
                     if st.button("Train Model"):
                         with st.spinner("Training model..."):
@@ -590,6 +1001,136 @@ def main():
                 # Correlation heatmap for numeric columns
                 if st.checkbox("Show Correlation Heatmap"):
                     cleaner.plot_correlation_heatmap()
+
+            # Advanced Data Cleaning
+            if st.sidebar.checkbox("Advanced Data Cleaning"):
+                st.write("### Advanced Data Cleaning")
+                
+                # Advanced Imputation
+                if st.checkbox("Advanced Missing Value Imputation"):
+                    imputation_strategy = st.selectbox(
+                        "Choose imputation strategy:",
+                        ['knn', 'iterative', 'multivariate']
+                    )
+                    n_neighbors = st.slider("Number of neighbors (for KNN):", 1, 20, 5)
+                    if st.button("Apply Advanced Imputation"):
+                        cleaner.advanced_imputation(
+                            strategy=imputation_strategy,
+                            n_neighbors=n_neighbors
+                        )
+
+                # Feature Transformation
+                if st.checkbox("Transform Skewed Features"):
+                    skew_threshold = st.slider("Skewness threshold:", 0.0, 2.0, 0.5)
+                    transform_method = st.selectbox(
+                        "Choose transformation method:",
+                        ['yeo-johnson', 'box-cox', 'log']
+                    )
+                    if st.button("Apply Transformation"):
+                        cleaner.transform_skewed_features(
+                            threshold=skew_threshold,
+                            method=transform_method
+                        )
+
+                # High Cardinality Handling
+                if st.checkbox("Handle High-Cardinality Features"):
+                    max_cats = st.slider("Maximum categories to keep:", 5, 50, 10)
+                    encoding_method = st.selectbox(
+                        "Choose encoding method:",
+                        ['frequency', 'grouping', 'target_encoding']
+                    )
+                    target_col = None
+                    if encoding_method == 'target_encoding':
+                        target_col = st.selectbox("Select target column:", df.columns)
+                    if st.button("Apply Encoding"):
+                        cleaner.handle_high_cardinality(
+                            max_categories=max_cats,
+                            method=encoding_method,
+                            target_column=target_col
+                        )
+
+            # Add Time Series Analysis section
+            if st.sidebar.checkbox("Time Series Analysis"):
+                st.write("### Time Series Analysis")
+                
+                # Check for datetime columns with better format detection
+                date_columns = []
+                for col in df.columns:
+                    # Sample the first few non-null values
+                    sample_vals = df[col].dropna().head(5).tolist()
+                    if len(sample_vals) == 0:
+                        continue
+                        
+                    # Try to detect if this might be a date column
+                    might_be_date = False
+                    if all(isinstance(val, str) for val in sample_vals):
+                        # Check for common date separators
+                        if any('-' in str(val) or '/' in str(val) or ':' in str(val) for val in sample_vals):
+                            might_be_date = True
+                    
+                    # Only try to convert columns that might be dates
+                    if might_be_date or pd.api.types.is_datetime64_any_dtype(df[col]):
+                        try:
+                            # Try conversion without warnings
+                            with pd.option_context('mode.chained_assignment', None):
+                                pd.to_datetime(df[col], errors='coerce')
+                            date_columns.append(col)
+                        except:
+                            pass
+                
+                if date_columns:
+                    # Get numeric columns for value selection
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    if not numeric_cols:
+                        st.error("No numeric columns available for time series analysis. Please ensure your dataset contains numeric values to analyze.")
+                        return
+                    
+                    date_col = st.selectbox("Select date column:", date_columns)
+                    
+                    # Show description of what makes a good value column
+                    st.info("Select a numeric column to analyze over time (e.g., sales amount, quantity, price, etc.)")
+                    value_col = st.selectbox(
+                        "Select value column:", 
+                        numeric_cols,
+                        help="Choose a numeric column that you want to analyze over time. This should be a measurable value like sales, quantity, or metrics."
+                    )
+                    
+                    # Add interactive plot option if plotly is available
+                    if PLOTLY_AVAILABLE:
+                        use_interactive = st.checkbox("Use interactive plots", value=True, 
+                                                        help="Enable interactive plots for better exploration")
+                    else:
+                        use_interactive = False
+                    
+                    # Add frequency selection with descriptions
+                    st.write("#### Select Time Series Frequency")
+                    st.info("Choose the time frequency that best matches your data and analysis needs:")
+                    frequency = st.selectbox(
+                        "Select frequency:", 
+                        ['D', 'W', 'M', 'Q', 'YE'], 
+                        format_func=lambda x: {
+                            'D': 'Daily (for day-by-day analysis)',
+                            'W': 'Weekly (for week-by-week patterns)',
+                            'M': 'Monthly (for monthly trends)',
+                            'Q': 'Quarterly (for quarterly performance)',
+                            'YE': 'Yearly (for annual patterns)'
+                        }[x]
+                    )
+                    
+                    # Show data preview before analysis
+                    st.write("#### Data Preview")
+                    preview_df = df[[date_col, value_col]].head()
+                    st.write("First few rows of selected data:")
+                    st.dataframe(preview_df)
+                    
+                    if st.button("Analyze Time Series"):
+                        if pd.api.types.is_numeric_dtype(df[value_col]):
+                            cleaner.analyze_time_series(date_col, value_col, frequency, use_interactive)
+                        else:
+                            st.error(f"Selected value column '{value_col}' must contain numeric data. Please choose a different column.")
+                else:
+                    st.warning("No datetime columns detected in the dataset. Please ensure you have a column containing dates.")
 
             # Show Cleaned Data
             st.write("### Cleaned DataFrame:")
