@@ -70,7 +70,6 @@ jobs:
           workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER }}'
           service_account: 'github-actions@data-cleaner-453619.iam.gserviceaccount.com'
           token_format: 'access_token'
-          audience: 'https://container.googleapis.com/'
 
       # Authenticate Docker to Google Cloud Artifact Registry
       - name: 'Docker Auth'
