@@ -28,4 +28,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
-CMD streamlit run --server.port=${PORT} --server.address=0.0.0.0 data_cleaner.py
+CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 data_cleaner.py"]

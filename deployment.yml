@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-cleaner-app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: data-cleaner
+  template:
+    metadata:
+      labels:
+        app: data-cleaner
+    spec:
+      containers:
+      - name: data-cleaner
+        image: LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE:TAG
+        ports:
+        - containerPort: 8080
+        resources:
+          requests:
+            cpu: 200m
+            memory: 512Mi
+          limits:
+            cpu: 500m
+            memory: 1Gi 

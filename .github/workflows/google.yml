@@ -36,23 +36,22 @@ name: 'Build and Deploy to GKE'
 on:
   push:
     branches:
-      - '"master"'
+      - 'master'
 
 env:
-  PROJECT_ID: 'retaildom' # TODO: update to your Google Cloud project ID
-  GAR_LOCATION: 'us-east1' # TODO: update to your region
-  GKE_CLUSTER: 'data-cleaner' # TODO: update to your cluster name
+  PROJECT_ID: 'data-cleaner-453619' # TODO: update to your Google Cloud project ID
+  GAR_LOCATION: 'us-central1' # TODO: update to your region
+  GKE_CLUSTER: 'data-cleaner-app-cluster' # TODO: update to your cluster name
   GKE_ZONE: 'us-central1' # TODO: update to your cluster zone
   DEPLOYMENT_NAME: 'data-cleaner-app' # TODO: update to your deployment name
-  REPOSITORY: 'samples' # TODO: update to your Artifact Registry docker repository name
-  IMAGE: 'static-site'
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/123456789/locations/global/workloadIdentityPools/my-pool/providers/my-provider' # TODO: update to your workload identity provider
+  REPOSITORY: 'data-cleaner' # TODO: update to your Artifact Registry docker repository name
+  IMAGE: 'data-cleaner'
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/data-cleaner-453619/locations/global/workloadIdentityPools/github-pool/providers/github-provider' # Updated workload identity provider
 
 jobs:
   setup-build-publish-deploy:
     name: 'Setup, Build, Publish, and Deploy'
     runs-on: 'ubuntu-latest'
-    environment: 'production'
 
     permissions:
       contents: 'read'
@@ -103,8 +102,10 @@ jobs:
       # Set up kustomize
       - name: 'Set up Kustomize'
         run: |-
-          curl -sfLo kustomize https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
+          curl -sfLo kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz
+          tar xzf kustomize.tar.gz
           chmod u+x ./kustomize
+          rm kustomize.tar.gz
 
       # Deploy the Docker image to the GKE cluster
       - name: 'Deploy to GKE'
