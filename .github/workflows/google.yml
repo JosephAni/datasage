@@ -46,7 +46,7 @@ env:
   DEPLOYMENT_NAME: 'data-cleaner-app' # TODO: update to your deployment name
   REPOSITORY: 'data-cleaner' # TODO: update to your Artifact Registry docker repository name
   IMAGE: 'data-cleaner'
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/data-cleaner-453619/locations/global/workloadIdentityPools/github-pool/providers/github-provider' # Updated workload identity provider
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/83845088278/locations/global/workloadIdentityPools/github-pool/providers/github-provider' # Updated workload identity provider
 
 jobs:
   setup-build-publish-deploy:
