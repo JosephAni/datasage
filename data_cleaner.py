@@ -293,15 +293,66 @@ class DataCleaner:
         Args:
             column (str): The column to plot.
         """
-        if not pd.api.types.is_numeric_dtype(self.df[column]) or len(self.df[column].unique()) <= 10:
-            value_counts = self.df[column].value_counts()
+        # Check if column exists
+        if column not in self.df.columns:
+            st.error(f"Column '{column}' not found in the dataset.")
+            return
+            
+        # Get number of unique values
+        unique_count = self.df[column].nunique()
+        
+        # Validate if column is suitable for a pie chart
+        if unique_count > 15:
+            st.error(f"⚠️ Column '{column}' has {unique_count} unique values, which is too many for a meaningful pie chart.")
+            st.info("Pie charts work best with 5-10 categories. Consider using a bar chart instead, or selecting a different column.")
+            return
+            
+        # For numeric columns with many unique values, suggest not using pie chart
+        if pd.api.types.is_numeric_dtype(self.df[column]) and unique_count > 10:
+            st.warning(f"Column '{column}' appears to be numeric with {unique_count} unique values. A pie chart may not be the best visualization.")
+            cont = st.checkbox("Continue anyway?")
+            if not cont:
+                return
+                
+        # Get value counts and prepare data for the pie chart
+        value_counts = self.df[column].value_counts()
+        
+        # If there are more than 8 categories, group the smallest ones as "Other"
+        if len(value_counts) > 8:
+            top_n = 7  # Show top 7 categories + "Other"
+            top_values = value_counts.nlargest(top_n)
+            other_sum = value_counts[top_n:].sum()
+            
+            # Create a new series with top categories + "Other"
+            plot_data = pd.Series(list(top_values) + [other_sum], 
+                                index=list(top_values.index) + ['Other'])
+            
+            st.info(f"Showing top {top_n} categories. {len(value_counts) - top_n} smaller categories grouped as 'Other'.")
+        else:
+            plot_data = value_counts
+            
+        # Create the pie chart
+        if PLOTLY_AVAILABLE:
+            # Create an interactive plotly pie chart
+            fig = px.pie(
+                values=plot_data.values,
+                names=plot_data.index.astype(str),
+                title=f'Pie Chart of {column}',
+                hole=0.3,  # Create a donut chart for better readability
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(uniformtext_minsize=10, uniformtext_mode='hide')
+            st.plotly_chart(fig)
+        else:
+            # Matplotlib fallback
             fig = plt.figure(figsize=(10, 8))
-            plt.pie(value_counts.values, labels=value_counts.index.astype(str), autopct='%1.1f%%')
+            plt.pie(plot_data.values, labels=plot_data.index.astype(str), 
+                   autopct='%1.1f%%', startangle=90, 
+                   wedgeprops={'linewidth': 1, 'edgecolor': 'white'})
             plt.title(f'Pie Chart of {column}')
+            plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
             st.pyplot(fig)
             plt.close()
-        else:
-            st.warning(f"Pie chart not suitable for column '{column}' (too many unique values or numeric data)")
 
     def plot_correlation_heatmap(self):
         """
