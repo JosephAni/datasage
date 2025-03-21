@@ -849,6 +849,365 @@ class DataCleaner:
             st.error(f"Error in time series analysis: {str(e)}")
             st.info("Please check your data format and try again.")
 
+    def perform_hypothesis_test(self, column1, column2=None, test_type='ttest'):
+        """
+        Performs statistical hypothesis tests on the data.
+        
+        Args:
+            column1 (str): First column for testing
+            column2 (str, optional): Second column for comparison tests
+            test_type (str): Type of test to perform - 'ttest', 'anova', 'chi2', 'correlation'
+            
+        Returns:
+            dict: Test results and interpretation
+        """
+        result = {}
+        
+        # Ensure columns exist
+        if column1 not in self.df.columns:
+            raise ValueError(f"Column '{column1}' not found in DataFrame")
+        
+        # Perform the appropriate test
+        if test_type == 'ttest':
+            if column2 and column2 in self.df.columns:
+                # Two-sample t-test
+                stat, pvalue = stats.ttest_ind(
+                    self.df[column1].dropna(),
+                    self.df[column2].dropna(),
+                    equal_var=False  # Welch's t-test does not assume equal variance
+                )
+                result['test_name'] = "Independent Samples t-test (Welch's)"
+                result['description'] = "Compares means of two independent samples"
+                result['statistic'] = stat
+                result['p_value'] = pvalue
+                result['interpretation'] = "Significant difference between means" if pvalue < 0.05 else "No significant difference between means"
+            else:
+                # One-sample t-test against 0
+                stat, pvalue = stats.ttest_1samp(self.df[column1].dropna(), 0)
+                result['test_name'] = "One-sample t-test"
+                result['description'] = "Tests if the sample mean differs from 0"
+                result['statistic'] = stat
+                result['p_value'] = pvalue
+                result['interpretation'] = "Mean significantly different from 0" if pvalue < 0.05 else "Mean not significantly different from 0"
+        
+        elif test_type == 'anova':
+            # For ANOVA, we need to group by a categorical variable
+            if column2 and column2 in self.df.columns and pd.api.types.is_object_dtype(self.df[column2]):
+                groups = []
+                labels = []
+                for group_name, group_data in self.df.groupby(column2)[column1]:
+                    if not group_data.dropna().empty:
+                        groups.append(group_data.dropna())
+                        labels.append(group_name)
+                
+                if len(groups) > 1:
+                    stat, pvalue = stats.f_oneway(*groups)
+                    result['test_name'] = "One-way ANOVA"
+                    result['description'] = f"Compares means of '{column1}' across categories in '{column2}'"
+                    result['statistic'] = stat
+                    result['p_value'] = pvalue
+                    result['interpretation'] = "At least one group mean is significantly different" if pvalue < 0.05 else "No significant difference between group means"
+                    result['groups'] = labels
+                else:
+                    raise ValueError("Need at least two groups with non-empty data for ANOVA")
+            else:
+                raise ValueError(f"For ANOVA, '{column2}' must be a categorical column")
+        
+        elif test_type == 'chi2':
+            # Chi-square test of independence between two categorical variables
+            if column2 and column2 in self.df.columns and pd.api.types.is_object_dtype(self.df[column1]) and pd.api.types.is_object_dtype(self.df[column2]):
+                # Create contingency table
+                contingency = pd.crosstab(self.df[column1], self.df[column2])
+                chi2, pvalue, dof, expected = stats.chi2_contingency(contingency)
+                result['test_name'] = "Chi-square test of independence"
+                result['description'] = f"Tests if '{column1}' and '{column2}' are independent"
+                result['statistic'] = chi2
+                result['p_value'] = pvalue
+                result['dof'] = dof
+                result['interpretation'] = "Variables are dependent" if pvalue < 0.05 else "Variables are independent"
+                result['contingency_table'] = contingency
+            else:
+                raise ValueError("Both columns must be categorical for chi-square test")
+        
+        elif test_type == 'correlation':
+            # Correlation test
+            if column2 and column2 in self.df.columns and pd.api.types.is_numeric_dtype(self.df[column1]) and pd.api.types.is_numeric_dtype(self.df[column2]):
+                correlation, pvalue = stats.pearsonr(self.df[column1].dropna(), self.df[column2].dropna())
+                result['test_name'] = "Pearson correlation"
+                result['description'] = f"Measures linear relationship between '{column1}' and '{column2}'"
+                result['correlation'] = correlation
+                result['p_value'] = pvalue
+                result['interpretation'] = "Significant correlation" if pvalue < 0.05 else "No significant correlation"
+                
+                # Add interpretation of correlation strength
+                if abs(correlation) < 0.3:
+                    strength = "weak"
+                elif abs(correlation) < 0.7:
+                    strength = "moderate"
+                else:
+                    strength = "strong"
+                direction = "positive" if correlation > 0 else "negative"
+                result['correlation_description'] = f"{strength} {direction} correlation (r={correlation:.3f})"
+            else:
+                raise ValueError("Both columns must be numeric for correlation test")
+                
+        return result
+    
+    def perform_clustering(self, columns, n_clusters=3, method='kmeans'):
+        """
+        Performs clustering on selected numeric columns.
+        
+        Args:
+            columns (list): List of columns to use for clustering
+            n_clusters (int): Number of clusters to form
+            method (str): Clustering method - 'kmeans' or 'hierarchical'
+            
+        Returns:
+            pd.DataFrame: Original data with cluster assignments
+        """
+        from sklearn.cluster import KMeans, AgglomerativeClustering
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.decomposition import PCA
+        
+        # Ensure all selected columns are numeric
+        for col in columns:
+            if col not in self.df.columns:
+                raise ValueError(f"Column '{col}' not found in DataFrame")
+            if not pd.api.types.is_numeric_dtype(self.df[col]):
+                raise ValueError(f"Column '{col}' must be numeric for clustering")
+        
+        # Extract and scale the features for clustering
+        X = self.df[columns].dropna()
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Perform clustering
+        if method == 'kmeans':
+            clustering = KMeans(n_clusters=n_clusters, random_state=42)
+        elif method == 'hierarchical':
+            clustering = AgglomerativeClustering(n_clusters=n_clusters)
+        else:
+            raise ValueError(f"Unsupported clustering method: {method}")
+        
+        # Fit model and get cluster assignments
+        cluster_labels = clustering.fit_predict(X_scaled)
+        
+        # Create a new DataFrame with original data and cluster assignments
+        result_df = X.copy()
+        result_df['cluster'] = cluster_labels
+        
+        # Calculate cluster centroids (for KMeans)
+        centroids = None
+        if method == 'kmeans':
+            centroids = pd.DataFrame(
+                scaler.inverse_transform(clustering.cluster_centers_),
+                columns=columns
+            )
+            centroids['cluster'] = range(n_clusters)
+        
+        # If we have more than 2 dimensions, add PCA for visualization
+        pca_result = None
+        if len(columns) > 2:
+            pca = PCA(n_components=2)
+            pca_result = pca.fit_transform(X_scaled)
+            pca_df = pd.DataFrame(pca_result, columns=['PC1', 'PC2'])
+            pca_df['cluster'] = cluster_labels
+            pca_df = pca_df.reset_index().merge(X.reset_index(), on='index').drop('index', axis=1)
+            explained_variance = pca.explained_variance_ratio_
+        else:
+            pca_df = None
+            explained_variance = None
+        
+        return {
+            'clustered_data': result_df,
+            'centroids': centroids,
+            'pca_data': pca_df,
+            'explained_variance': explained_variance,
+            'n_clusters': n_clusters,
+            'method': method
+        }
+    
+    def select_features(self, target_column, n_features=10, method='importance'):
+        """
+        Performs feature selection to identify most relevant features for target_column.
+        
+        Args:
+            target_column (str): Target variable for prediction
+            n_features (int): Number of top features to select
+            method (str): Selection method - 'importance', 'f_test', 'mutual_info'
+            
+        Returns:
+            list: Selected feature names and their scores
+        """
+        from sklearn.feature_selection import SelectKBest, f_classif, f_regression, mutual_info_classif, mutual_info_regression
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        
+        if target_column not in self.df.columns:
+            raise ValueError(f"Target column '{target_column}' not found")
+        
+        # Determine if classification or regression problem
+        is_classification = pd.api.types.is_object_dtype(self.df[target_column]) or len(self.df[target_column].unique()) <= 10
+        
+        # Get numeric features, excluding the target
+        numeric_features = [col for col in self.df.select_dtypes(include=[np.number]).columns if col != target_column]
+        
+        if not numeric_features:
+            raise ValueError("No numeric features available for selection")
+        
+        # Prepare the data
+        X = self.df[numeric_features].dropna()
+        y = self.df.loc[X.index, target_column]
+        
+        # Perform feature selection based on method
+        feature_scores = {}
+        
+        if method == 'importance':
+            # Random Forest feature importance
+            if is_classification:
+                model = RandomForestClassifier(n_estimators=100, random_state=42)
+            else:
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+            
+            model.fit(X, y)
+            feature_scores = dict(zip(numeric_features, model.feature_importances_))
+        
+        elif method == 'f_test':
+            # F-test for feature selection
+            if is_classification:
+                selector = SelectKBest(f_classif, k=min(n_features, len(numeric_features)))
+            else:
+                selector = SelectKBest(f_regression, k=min(n_features, len(numeric_features)))
+            
+            selector.fit(X, y)
+            feature_scores = dict(zip(numeric_features, selector.scores_))
+        
+        elif method == 'mutual_info':
+            # Mutual information for feature selection
+            if is_classification:
+                selector = SelectKBest(mutual_info_classif, k=min(n_features, len(numeric_features)))
+            else:
+                selector = SelectKBest(mutual_info_regression, k=min(n_features, len(numeric_features)))
+            
+            selector.fit(X, y)
+            feature_scores = dict(zip(numeric_features, selector.scores_))
+        
+        # Sort features by score
+        sorted_features = sorted(feature_scores.items(), key=lambda x: x[1], reverse=True)
+        top_features = sorted_features[:n_features]
+        
+        return {
+            'top_features': top_features,
+            'method': method,
+            'is_classification': is_classification
+        }
+    
+    def automated_eda(self):
+        """
+        Performs automated exploratory data analysis on the dataset.
+        
+        Returns:
+            dict: EDA results including summary statistics, distributions, correlations, and outliers
+        """
+        results = {}
+        
+        # Basic dataset info
+        results['dataset_shape'] = self.df.shape
+        results['memory_usage'] = self.df.memory_usage(deep=True).sum() / (1024 * 1024)  # MB
+        
+        # Missing values analysis
+        missing_counts = self.df.isnull().sum()
+        missing_percent = (missing_counts / len(self.df)) * 100
+        results['missing_values'] = {
+            'counts': missing_counts[missing_counts > 0],
+            'percentages': missing_percent[missing_percent > 0],
+            'total_missing_cells': self.df.isnull().sum().sum(),
+            'total_cells': self.df.size,
+            'percent_missing': (self.df.isnull().sum().sum() / self.df.size) * 100
+        }
+        
+        # Numeric column analysis
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns.tolist()
+        
+        if numeric_cols:
+            # Summary statistics
+            results['numeric_summary'] = self.df[numeric_cols].describe()
+            
+            # Detect skewness
+            skewness = self.df[numeric_cols].skew()
+            high_skew_cols = skewness[abs(skewness) > 1].to_dict()
+            results['skewed_features'] = high_skew_cols
+            
+            # Detect outliers (using IQR method)
+            outliers_info = {}
+            for col in numeric_cols:
+                Q1 = self.df[col].quantile(0.25)
+                Q3 = self.df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower_bound = Q1 - 1.5 * IQR
+                upper_bound = Q3 + 1.5 * IQR
+                outliers = self.df[(self.df[col] < lower_bound) | (self.df[col] > upper_bound)][col]
+                if len(outliers) > 0:
+                    outliers_info[col] = {
+                        'count': len(outliers),
+                        'percentage': (len(outliers) / len(self.df)) * 100,
+                        'min': outliers.min(),
+                        'max': outliers.max()
+                    }
+            results['outliers'] = outliers_info
+            
+            # Correlation analysis for numeric features
+            if len(numeric_cols) > 1:
+                correlation_matrix = self.df[numeric_cols].corr()
+                # Find highly correlated features
+                high_corr = {}
+                for i, col1 in enumerate(correlation_matrix.columns):
+                    for col2 in correlation_matrix.columns[i+1:]:
+                        corr_value = correlation_matrix.loc[col1, col2]
+                        if abs(corr_value) > 0.7:  # Threshold for high correlation
+                            high_corr[f"{col1} & {col2}"] = corr_value
+                results['high_correlations'] = high_corr
+        
+        # Categorical column analysis
+        cat_cols = self.df.select_dtypes(include=['object', 'category']).columns.tolist()
+        
+        if cat_cols:
+            cat_summary = {}
+            for col in cat_cols:
+                value_counts = self.df[col].value_counts()
+                unique_count = len(value_counts)
+                cat_summary[col] = {
+                    'unique_values': unique_count,
+                    'top_categories': value_counts.head(5).to_dict() if unique_count > 5 else value_counts.to_dict(),
+                    'high_cardinality': unique_count > 10
+                }
+            results['categorical_summary'] = cat_summary
+        
+        # Date column detection and analysis
+        date_cols = []
+        for col in self.df.columns:
+            try:
+                # Check if column can be converted to datetime
+                pd.to_datetime(self.df[col], errors='raise')
+                date_cols.append(col)
+            except:
+                continue
+        
+        if date_cols:
+            date_summary = {}
+            for col in date_cols:
+                datetime_series = pd.to_datetime(self.df[col])
+                date_summary[col] = {
+                    'min_date': datetime_series.min(),
+                    'max_date': datetime_series.max(),
+                    'range_days': (datetime_series.max() - datetime_series.min()).days,
+                    'weekend_days': sum(datetime_series.dt.dayofweek >= 5),
+                    'weekday_days': sum(datetime_series.dt.dayofweek < 5),
+                    'null_dates': self.df[col].isnull().sum()
+                }
+            results['date_analysis'] = date_summary
+        
+        return results
+
 def main():
     st.title("AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖")
 
@@ -1131,6 +1490,417 @@ def main():
                             st.error(f"Selected value column '{value_col}' must contain numeric data. Please choose a different column.")
                 else:
                     st.warning("No datetime columns detected in the dataset. Please ensure you have a column containing dates.")
+
+            # Add Advanced Data Analysis section
+            if st.sidebar.checkbox("Advanced Data Analysis"):
+                st.write("### Advanced Data Analysis")
+                
+                analysis_type = st.selectbox(
+                    "Select analysis type:",
+                    ["Automated EDA", "Statistical Tests", "Clustering", "Feature Selection"]
+                )
+                
+                if analysis_type == "Automated EDA":
+                    if st.button("Generate Automated EDA"):
+                        with st.spinner("Analyzing your data..."):
+                            eda_results = cleaner.automated_eda()
+                            
+                            # Display dataset overview
+                            st.write("#### Dataset Overview")
+                            st.write(f"Shape: {eda_results['dataset_shape'][0]} rows, {eda_results['dataset_shape'][1]} columns")
+                            st.write(f"Memory usage: {eda_results['memory_usage']:.2f} MB")
+                            
+                            # Display missing values info
+                            st.write("#### Missing Values Analysis")
+                            missing = eda_results['missing_values']
+                            if missing['total_missing_cells'] > 0:
+                                st.write(f"Total missing: {missing['total_missing_cells']} cells ({missing['percent_missing']:.2f}% of all data)")
+                                st.write("Columns with missing values:")
+                                missing_df = pd.DataFrame({
+                                    'Count': missing['counts'],
+                                    'Percentage': missing['percentages']
+                                })
+                                st.dataframe(missing_df)
+                            else:
+                                st.success("No missing values found in the dataset!")
+                            
+                            # Display numeric column analysis
+                            if 'numeric_summary' in eda_results:
+                                st.write("#### Numeric Columns Summary")
+                                st.dataframe(eda_results['numeric_summary'])
+                                
+                                # Display skewed features
+                                if eda_results['skewed_features']:
+                                    st.write("#### Skewed Features")
+                                    st.write("The following numeric features have high skewness (>1.0):")
+                                    skew_df = pd.DataFrame.from_dict(eda_results['skewed_features'], orient='index', columns=['Skewness'])
+                                    st.dataframe(skew_df)
+                                    st.info("Consider applying transformations (log, sqrt, etc.) to these features.")
+                                
+                                # Display outliers info
+                                if eda_results['outliers']:
+                                    st.write("#### Outlier Detection")
+                                    st.write("The following columns have potential outliers:")
+                                    for col, info in eda_results['outliers'].items():
+                                        st.write(f"- **{col}**: {info['count']} outliers ({info['percentage']:.2f}% of data)")
+                                        st.write(f"  Range: {info['min']} to {info['max']}")
+                                
+                                # Display correlation info
+                                if 'high_correlations' in eda_results and eda_results['high_correlations']:
+                                    st.write("#### High Correlations")
+                                    st.write("The following feature pairs have high correlation (>0.7):")
+                                    corr_df = pd.DataFrame.from_dict(eda_results['high_correlations'], orient='index', columns=['Correlation'])
+                                    st.dataframe(corr_df)
+                                    st.info("Consider removing one feature from each highly correlated pair to reduce dimensionality.")
+                            
+                            # Display categorical column analysis
+                            if 'categorical_summary' in eda_results:
+                                st.write("#### Categorical Columns Analysis")
+                                for col, info in eda_results['categorical_summary'].items():
+                                    st.write(f"**{col}**: {info['unique_values']} unique values")
+                                    if info['high_cardinality']:
+                                        st.warning(f"High cardinality detected for '{col}'")
+                                    st.write("Top categories:")
+                                    cat_df = pd.DataFrame(list(info['top_categories'].items()), columns=['Value', 'Count'])
+                                    st.dataframe(cat_df)
+                            
+                            # Display date column analysis
+                            if 'date_analysis' in eda_results:
+                                st.write("#### Date Columns Analysis")
+                                for col, info in eda_results['date_analysis'].items():
+                                    st.write(f"**{col}**:")
+                                    st.write(f"- Range: {info['min_date']} to {info['max_date']} ({info['range_days']} days)")
+                                    st.write(f"- Weekdays: {info['weekday_days']}, Weekends: {info['weekend_days']}")
+                                    if info['null_dates'] > 0:
+                                        st.write(f"- Missing dates: {info['null_dates']}")
+                
+                elif analysis_type == "Statistical Tests":
+                    st.write("#### Statistical Hypothesis Testing")
+                    
+                    test_type = st.selectbox(
+                        "Select test type:",
+                        ["t-test", "ANOVA", "Chi-Square Test", "Correlation Test"],
+                        format_func=lambda x: {
+                            "t-test": "t-test (compare means)",
+                            "ANOVA": "ANOVA (compare means across groups)",
+                            "Chi-Square Test": "Chi-Square Test (categorical association)",
+                            "Correlation Test": "Correlation Test (numeric relationship)"
+                        }[x]
+                    )
+                    
+                    # Column selection based on test type
+                    if test_type == "t-test":
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                        if len(numeric_cols) == 0:
+                            st.error("No numeric columns available for t-test")
+                            return
+                            
+                        col1 = st.selectbox("Select first numeric column:", numeric_cols)
+                        col2 = st.selectbox("Select second numeric column (optional):", ["None"] + numeric_cols)
+                        col2 = None if col2 == "None" else col2
+                        
+                        if st.button("Run t-test"):
+                            with st.spinner("Running test..."):
+                                try:
+                                    result = cleaner.perform_hypothesis_test(col1, col2, 'ttest')
+                                    
+                                    st.write(f"#### {result['test_name']}")
+                                    st.write(result['description'])
+                                    st.write(f"t-statistic: {result['statistic']:.4f}")
+                                    st.write(f"p-value: {result['p_value']:.4f}")
+                                    
+                                    if result['p_value'] < 0.05:
+                                        st.success(f"Result: **{result['interpretation']}** (p < 0.05)")
+                                    else:
+                                        st.info(f"Result: **{result['interpretation']}** (p ≥ 0.05)")
+                                        
+                                except Exception as e:
+                                    st.error(f"Error running t-test: {str(e)}")
+                    
+                    elif test_type == "ANOVA":
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                        cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                        
+                        if len(numeric_cols) == 0 or len(cat_cols) == 0:
+                            st.error("ANOVA requires at least one numeric column and one categorical column")
+                            return
+                            
+                        target_col = st.selectbox("Select numeric column (dependent variable):", numeric_cols)
+                        group_col = st.selectbox("Select categorical column (grouping variable):", cat_cols)
+                        
+                        if st.button("Run ANOVA"):
+                            with st.spinner("Running ANOVA..."):
+                                try:
+                                    result = cleaner.perform_hypothesis_test(target_col, group_col, 'anova')
+                                    
+                                    st.write(f"#### {result['test_name']}")
+                                    st.write(result['description'])
+                                    st.write(f"F-statistic: {result['statistic']:.4f}")
+                                    st.write(f"p-value: {result['p_value']:.4f}")
+                                    
+                                    if result['p_value'] < 0.05:
+                                        st.success(f"Result: **{result['interpretation']}** (p < 0.05)")
+                                    else:
+                                        st.info(f"Result: **{result['interpretation']}** (p ≥ 0.05)")
+                                    
+                                    st.write("Groups analyzed:", ", ".join(result['groups']))
+                                    
+                                except Exception as e:
+                                    st.error(f"Error running ANOVA: {str(e)}")
+                    
+                    elif test_type == "Chi-Square Test":
+                        cat_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                        
+                        if len(cat_cols) < 2:
+                            st.error("Chi-Square test requires at least two categorical columns")
+                            return
+                            
+                        col1 = st.selectbox("Select first categorical column:", cat_cols)
+                        col2 = st.selectbox("Select second categorical column:", [c for c in cat_cols if c != col1])
+                        
+                        if st.button("Run Chi-Square Test"):
+                            with st.spinner("Running Chi-Square test..."):
+                                try:
+                                    result = cleaner.perform_hypothesis_test(col1, col2, 'chi2')
+                                    
+                                    st.write(f"#### {result['test_name']}")
+                                    st.write(result['description'])
+                                    st.write(f"Chi-Square statistic: {result['statistic']:.4f}")
+                                    st.write(f"p-value: {result['p_value']:.4f}")
+                                    st.write(f"Degrees of freedom: {result['dof']}")
+                                    
+                                    if result['p_value'] < 0.05:
+                                        st.success(f"Result: **{result['interpretation']}** (p < 0.05)")
+                                    else:
+                                        st.info(f"Result: **{result['interpretation']}** (p ≥ 0.05)")
+                                    
+                                    st.write("#### Contingency Table")
+                                    st.dataframe(result['contingency_table'])
+                                    
+                                except Exception as e:
+                                    st.error(f"Error running Chi-Square test: {str(e)}")
+                    
+                    elif test_type == "Correlation Test":
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                        
+                        if len(numeric_cols) < 2:
+                            st.error("Correlation test requires at least two numeric columns")
+                            return
+                            
+                        col1 = st.selectbox("Select first numeric column:", numeric_cols)
+                        col2 = st.selectbox("Select second numeric column:", [c for c in numeric_cols if c != col1])
+                        
+                        if st.button("Run Correlation Test"):
+                            with st.spinner("Running correlation test..."):
+                                try:
+                                    result = cleaner.perform_hypothesis_test(col1, col2, 'correlation')
+                                    
+                                    st.write(f"#### {result['test_name']}")
+                                    st.write(result['description'])
+                                    st.write(f"Correlation coefficient: {result['correlation']:.4f}")
+                                    st.write(f"p-value: {result['p_value']:.4f}")
+                                    
+                                    if result['p_value'] < 0.05:
+                                        st.success(f"Result: **{result['interpretation']}** (p < 0.05)")
+                                    else:
+                                        st.info(f"Result: **{result['interpretation']}** (p ≥ 0.05)")
+                                    
+                                    st.write(f"Interpretation: **{result['correlation_description']}**")
+                                    
+                                    # Visualization of correlation
+                                    if PLOTLY_AVAILABLE:
+                                        fig = px.scatter(df, x=col1, y=col2, 
+                                                      title=f"Correlation between {col1} and {col2}",
+                                                      trendline="ols")
+                                        st.plotly_chart(fig)
+                                    else:
+                                        fig, ax = plt.subplots()
+                                        ax.scatter(df[col1], df[col2])
+                                        ax.set_xlabel(col1)
+                                        ax.set_ylabel(col2)
+                                        ax.set_title(f"Correlation between {col1} and {col2}")
+                                        st.pyplot(fig)
+                                    
+                                except Exception as e:
+                                    st.error(f"Error running correlation test: {str(e)}")
+                
+                elif analysis_type == "Clustering":
+                    st.write("#### Cluster Analysis")
+                    st.write("Cluster analysis helps identify natural groupings in your data.")
+                    
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    if len(numeric_cols) < 2:
+                        st.error("Clustering requires at least two numeric features")
+                        return
+                    
+                    selected_features = st.multiselect(
+                        "Select features for clustering:", 
+                        numeric_cols,
+                        default=numeric_cols[:min(3, len(numeric_cols))]
+                    )
+                    
+                    clustering_method = st.selectbox(
+                        "Select clustering method:",
+                        ["kmeans", "hierarchical"],
+                        format_func=lambda x: {
+                            "kmeans": "K-means (distance-based clusters)",
+                            "hierarchical": "Hierarchical (tree-based clustering)"
+                        }[x]
+                    )
+                    
+                    n_clusters = st.slider("Number of clusters:", 2, 10, 3)
+                    
+                    if len(selected_features) < 2:
+                        st.warning("Please select at least two features for clustering")
+                    else:
+                        if st.button("Perform Clustering"):
+                            with st.spinner("Clustering data..."):
+                                try:
+                                    result = cleaner.perform_clustering(selected_features, n_clusters, clustering_method)
+                                    
+                                    st.write(f"#### Clustering Results ({clustering_method})")
+                                    st.write(f"Created {n_clusters} clusters using {len(selected_features)} features")
+                                    
+                                    # Show cluster sizes
+                                    cluster_sizes = result['clustered_data']['cluster'].value_counts().sort_index()
+                                    st.write("#### Cluster Sizes")
+                                    
+                                    # Create cluster size visualization
+                                    if PLOTLY_AVAILABLE:
+                                        fig = px.bar(x=cluster_sizes.index, y=cluster_sizes.values,
+                                                    labels={'x': 'Cluster', 'y': 'Count'},
+                                                    title="Number of samples in each cluster")
+                                        st.plotly_chart(fig)
+                                    else:
+                                        fig, ax = plt.subplots()
+                                        cluster_sizes.plot.bar(ax=ax)
+                                        ax.set_xlabel("Cluster")
+                                        ax.set_ylabel("Count")
+                                        ax.set_title("Number of samples in each cluster")
+                                        st.pyplot(fig)
+                                    
+                                    # Show cluster centers for KMeans
+                                    if result['centroids'] is not None:
+                                        st.write("#### Cluster Centers")
+                                        st.dataframe(result['centroids'].set_index('cluster'))
+                                    
+                                    # Visualize clusters in 2D
+                                    st.write("#### Cluster Visualization")
+                                    
+                                    if result['pca_data'] is not None:
+                                        # Using PCA data for visualization if more than 2 features
+                                        if PLOTLY_AVAILABLE:
+                                            fig = px.scatter(
+                                                result['pca_data'], x='PC1', y='PC2', color='cluster',
+                                                title=f"Cluster visualization (variance explained: {sum(result['explained_variance'])*100:.1f}%)"
+                                            )
+                                            st.plotly_chart(fig)
+                                        else:
+                                            fig, ax = plt.subplots()
+                                            for i in range(n_clusters):
+                                                ax.scatter(
+                                                    result['pca_data'][result['pca_data']['cluster'] == i]['PC1'],
+                                                    result['pca_data'][result['pca_data']['cluster'] == i]['PC2'],
+                                                    label=f'Cluster {i}'
+                                                )
+                                            ax.set_xlabel('PC1')
+                                            ax.set_ylabel('PC2')
+                                            ax.set_title(f"Cluster visualization (variance explained: {sum(result['explained_variance'])*100:.1f}%)")
+                                            ax.legend()
+                                            st.pyplot(fig)
+                                    elif len(selected_features) == 2:
+                                        # Direct visualization if exactly 2 features
+                                        x_col, y_col = selected_features
+                                        if PLOTLY_AVAILABLE:
+                                            fig = px.scatter(
+                                                result['clustered_data'], x=x_col, y=y_col, color='cluster',
+                                                title=f"Clusters based on {x_col} and {y_col}"
+                                            )
+                                            st.plotly_chart(fig)
+                                        else:
+                                            fig, ax = plt.subplots()
+                                            for i in range(n_clusters):
+                                                ax.scatter(
+                                                    result['clustered_data'][result['clustered_data']['cluster'] == i][x_col],
+                                                    result['clustered_data'][result['clustered_data']['cluster'] == i][y_col],
+                                                    label=f'Cluster {i}'
+                                                )
+                                            ax.set_xlabel(x_col)
+                                            ax.set_ylabel(y_col)
+                                            ax.set_title(f"Clusters based on {x_col} and {y_col}")
+                                            ax.legend()
+                                            st.pyplot(fig)
+                                    
+                                    # Add cluster labels to the main DataFrame if requested
+                                    if st.checkbox("Add cluster labels to the dataset"):
+                                        # First create a mapping from original index to cluster
+                                        cluster_mapping = dict(zip(result['clustered_data'].index, result['clustered_data']['cluster']))
+                                        # Then apply this to the original dataframe
+                                        cleaner.df['cluster'] = cleaner.df.index.map(lambda idx: cluster_mapping.get(idx, -1))
+                                        st.success("Cluster labels added as 'cluster' column. Rows without cluster assignment have value -1.")
+                                    
+                                except Exception as e:
+                                    st.error(f"Error performing clustering: {str(e)}")
+                
+                elif analysis_type == "Feature Selection":
+                    st.write("#### Feature Selection")
+                    st.write("Identify the most important features for predicting a target variable.")
+                    
+                    target_col = st.selectbox("Select target column:", df.columns)
+                    
+                    selection_method = st.selectbox(
+                        "Select feature selection method:",
+                        ["importance", "f_test", "mutual_info"],
+                        format_func=lambda x: {
+                            "importance": "Random Forest Importance (best for general use)",
+                            "f_test": "F-test (linear relationships)",
+                            "mutual_info": "Mutual Information (captures non-linear relationships)"
+                        }[x]
+                    )
+                    
+                    n_features = st.slider("Number of top features to select:", 1, 20, 10)
+                    
+                    if st.button("Select Features"):
+                        with st.spinner("Analyzing feature importance..."):
+                            try:
+                                result = cleaner.select_features(target_col, n_features, selection_method)
+                                
+                                st.write(f"#### Top {len(result['top_features'])} Features for {target_col}")
+                                st.write(f"Problem type: {'Classification' if result['is_classification'] else 'Regression'}")
+                                
+                                # Create DataFrame for feature importance
+                                importance_df = pd.DataFrame(
+                                    result['top_features'],
+                                    columns=['Feature', 'Score']
+                                )
+                                
+                                # Display as table
+                                st.dataframe(importance_df)
+                                
+                                # Create bar chart visualization
+                                if PLOTLY_AVAILABLE:
+                                    fig = px.bar(
+                                        importance_df, x='Score', y='Feature', 
+                                        orientation='h',
+                                        title=f"Feature Importance for {target_col}"
+                                    )
+                                    fig.update_layout(yaxis={'categoryorder':'total ascending'})
+                                    st.plotly_chart(fig)
+                                else:
+                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                    importance_df.plot.barh(x='Feature', y='Score', ax=ax, legend=False)
+                                    ax.set_title(f"Feature Importance for {target_col}")
+                                    st.pyplot(fig)
+                                
+                                # Option to keep only selected features
+                                if st.checkbox("Keep only selected features in the dataset"):
+                                    keep_cols = [f[0] for f in result['top_features']] + [target_col]
+                                    cleaner.df = cleaner.df[keep_cols]
+                                    st.success(f"Dataset reduced to {len(keep_cols)} columns (top features + target column)")
+                                
+                            except Exception as e:
+                                st.error(f"Error in feature selection: {str(e)}")
 
             # Show Cleaned Data
             st.write("### Cleaned DataFrame:")
