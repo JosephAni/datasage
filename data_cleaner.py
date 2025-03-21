@@ -14,6 +14,8 @@ from category_encoders import TargetEncoder
 from statsmodels.tsa.seasonal import seasonal_decompose
 from statsmodels.tsa.stattools import adfuller
 from prophet import Prophet
+import re
+import warnings
 
 # Add plotly for interactive plots
 try:
@@ -128,68 +130,324 @@ class DataCleaner:
                 self.label_encoders[col] = le
                 st.info(f"Encoded categorical column: {col}")
 
-    def scale_features(self, columns=None):
+    def scale_features(self, columns, scaler_type='standard'):
         """
-        Scale numeric features using StandardScaler.
-
+        Scale numeric features in the dataset.
+        
         Args:
-            columns (list, optional): List of columns to scale. If None, scales all numeric columns.
+            columns (list): List of columns to scale
+            scaler_type (str): Type of scaling ('standard', 'minmax', 'robust')
         """
-        if columns is None:
-            columns = self.df.select_dtypes(include=[np.number]).columns
-
-        if not columns:
-            st.warning("No numeric columns available for scaling.")
+        from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
+        
+        # Verify columns exist
+        for col in columns:
+            if col not in self.df.columns:
+                st.error(f"Column '{col}' not found in dataset.")
+                return
+        
+        # Check for and warn about ID columns
+        id_columns = []
+        for col in columns:
+            is_id, reason = self.is_likely_id_column(col)
+            if is_id:
+                id_columns.append((col, reason))
+                
+        if id_columns:
+            st.warning("⚠️ The following columns appear to be IDs or codes that generally shouldn't be scaled:")
+            for col, reason in id_columns:
+                st.markdown(f"- **{col}**: {reason}")
+            proceed = st.checkbox("Proceed with scaling anyway? (Not recommended)")
+            if not proceed:
+                return
+        
+        # Preview data before scaling
+        st.write("##### Preview of selected columns:")
+        preview_df = self.df[columns].head(5)
+        st.dataframe(preview_df)
+        
+        # Attempt to convert to numeric, showing errors for non-convertible columns
+        numeric_conversion_failed = False
+        non_numeric_examples = {}
+        
+        for col in columns:
+            # Skip if already numeric
+            if pd.api.types.is_numeric_dtype(self.df[col]):
+                continue
+                
+            # Try to convert with error reporting
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    numeric_vals = pd.to_numeric(self.df[col], errors='coerce')
+                    
+                # Check if conversion created NaNs and report examples
+                if numeric_vals.isna().sum() > 0:
+                    # Find example of non-convertible values
+                    mask = self.df[col].notna() & numeric_vals.isna()
+                    if mask.any():
+                        examples = self.df.loc[mask, col].unique()[:3]  # Get up to 3 examples
+                        non_numeric_examples[col] = examples
+                        numeric_conversion_failed = True
+            except Exception as e:
+                st.error(f"Error converting {col} to numeric: {str(e)}")
+                return
+        
+        if numeric_conversion_failed:
+            st.error("⚠️ Some columns contain values that cannot be converted to numeric format:")
+            for col, examples in non_numeric_examples.items():
+                example_str = ', '.join([f"'{ex}'" for ex in examples])
+                st.markdown(f"- **{col}**: Contains non-numeric values like {example_str}")
+            
+            options = st.radio(
+                "How would you like to proceed?",
+                ["Cancel operation", 
+                 "Remove non-numeric characters and try again",
+                 "Replace non-numeric values with NaN and continue"]
+            )
+            
+            if options == "Cancel operation":
+                return
+            elif options == "Remove non-numeric characters and try again":
+                # Remove non-numeric chars for the problematic columns
+                for col in non_numeric_examples.keys():
+                    # Keep only digits, decimal point, and minus sign
+                    self.df[col] = self.df[col].astype(str).str.replace(r'[^\d.-]', '', regex=True)
+                    # Convert to numeric
+                    self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
+                st.success("Non-numeric characters removed, proceeding with scaling.")
+            else:  # Replace with NaN
+                for col in non_numeric_examples.keys():
+                    self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
+                st.info("Non-numeric values replaced with NaN, proceeding with scaling.")
+        
+        # Proceed with scaling
+        try:
+            if scaler_type == 'standard':
+                scaler = StandardScaler()
+            elif scaler_type == 'minmax':
+                scaler = MinMaxScaler()
+            elif scaler_type == 'robust':
+                scaler = RobustScaler()
+            else:
+                st.error(f"Unknown scaler type: {scaler_type}")
+                return
+            
+            # Convert all columns to numeric to be safe
+            numeric_df = self.df[columns].apply(pd.to_numeric, errors='coerce')
+            
+            # Scale and update the dataframe
+            scaled_values = scaler.fit_transform(numeric_df)
+            scaled_df = pd.DataFrame(scaled_values, columns=columns, index=self.df.index)
+            
+            # Replace the original columns with scaled values
+            for col in columns:
+                self.df[col] = scaled_df[col]
+            
+            # Show results
+            st.success(f"Successfully scaled {len(columns)} columns using {scaler_type} scaling")
+            
+            # Show before/after statistics
+            st.write("##### Statistics after scaling:")
+            st.dataframe(self.df[columns].describe())
+            
+        except Exception as e:
+            st.error(f"Error during scaling: {str(e)}")
+            st.info("This could be due to non-numeric values or missing data in the selected columns.")
             return
-
-        scaler = StandardScaler()
-        self.df[columns] = scaler.fit_transform(self.df[columns])
-        st.info(f"Scaled numeric columns: {', '.join(columns)}")
 
     def train_model(self, target_column, problem_type='classification', test_size=0.2):
         """
-        Train a basic ML model on the cleaned data.
-
+        Train a basic ML model and return metrics.
+        
         Args:
-            target_column (str): The column to predict.
-            problem_type (str): Either 'classification' or 'regression'.
-            test_size (float): Proportion of data to use for testing.
-
+            target_column (str): Target column for prediction
+            problem_type (str): Either 'classification' or 'regression'
+            test_size (float): Proportion of data to use for testing
+            
         Returns:
-            dict: Dictionary containing model performance metrics.
+            dict: Dictionary of model metrics
         """
+        from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+        from sklearn.metrics import accuracy_score, f1_score, r2_score, mean_absolute_error
+        from sklearn.model_selection import train_test_split
+        
+        # Validate target column existence
         if target_column not in self.df.columns:
-            st.error(f"Target column '{target_column}' not found in DataFrame.")
+            st.error(f"Target column '{target_column}' not found in the dataset.")
             return None
-
-        # Prepare features and target
-        X = self.df.drop([target_column, 'is_outlier'] if 'is_outlier' in self.df.columns else [target_column], axis=1)
+            
+        # Check if target column is an ID column and warn user
+        is_id, reason = self.is_likely_id_column(target_column)
+        if is_id:
+            st.warning(f"⚠️ The selected target column '{target_column}' appears to be an ID or code column: {reason}")
+            st.warning("ID columns typically don't have meaningful patterns for ML models to learn.")
+            proceed = st.checkbox("Proceed with modeling anyway? (Not recommended)")
+            if not proceed:
+                return None
+            
+        # Get feature columns (all except target)
+        features = [col for col in self.df.columns if col != target_column]
+        
+        # Check for ID columns in features and warn
+        id_features = []
+        for col in features:
+            is_id, reason = self.is_likely_id_column(col)
+            if is_id:
+                id_features.append((col, reason))
+                
+        if id_features:
+            st.warning("⚠️ The following feature columns appear to be IDs or codes:")
+            for col, reason in id_features:
+                st.markdown(f"- **{col}**: {reason}")
+            st.warning("ID columns can lead to overfitting and poor model generalization.")
+            
+            exclude_option = st.radio(
+                "How would you like to handle ID columns?",
+                ["Exclude ID columns from model", "Keep all columns"]
+            )
+            
+            if exclude_option == "Exclude ID columns from model":
+                features = [col for col in features if col not in [id_col for id_col, _ in id_features]]
+                st.info(f"Excluded {len(id_features)} ID columns from the model.")
+        
+        # Preview target distribution
+        st.write("##### Target Column Preview:")
+        
+        if pd.api.types.is_numeric_dtype(self.df[target_column]):
+            # For numeric targets, show histogram and statistics
+            st.write(f"Target statistics: {self.df[target_column].describe().to_dict()}")
+            fig, ax = plt.subplots(figsize=(10, 4))
+            sns.histplot(self.df[target_column].dropna(), kde=True, ax=ax)
+            plt.title(f"Distribution of {target_column}")
+            st.pyplot(fig)
+            plt.close()
+        else:
+            # For categorical targets, show value counts and bar chart
+            value_counts = self.df[target_column].value_counts()
+            unique_count = len(value_counts)
+            
+            st.write(f"Target has {unique_count} unique values")
+            
+            # Show warning if too many unique values for classification
+            if problem_type == 'classification' and unique_count > 50:
+                st.warning(f"⚠️ The target has {unique_count} unique values, which is very high for a classification problem.")
+                st.warning("Consider using regression instead, or transform the target into fewer categories.")
+                proceed = st.checkbox("Proceed with classification anyway?")
+                if not proceed:
+                    return None
+            
+            # Display top categories
+            display_count = min(10, unique_count)
+            st.write(f"Top {display_count} most frequent values:")
+            st.dataframe(value_counts.head(display_count).reset_index().rename(
+                columns={'index': target_column, target_column: 'Count'}))
+            
+            # Simple bar chart
+            fig, ax = plt.subplots(figsize=(10, 4))
+            value_counts.head(display_count).plot.bar(ax=ax)
+            plt.title(f"Top values of {target_column}")
+            plt.ylabel("Count")
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+        
+        # Check for non-numeric features and warn/convert
+        non_numeric_cols = []
+        for col in features:
+            if not pd.api.types.is_numeric_dtype(self.df[col]):
+                non_numeric_cols.append(col)
+                
+        if non_numeric_cols:
+            st.warning(f"⚠️ The following features are non-numeric and will be excluded: {', '.join(non_numeric_cols)}")
+            st.info("Consider encoding categorical features before training the model.")
+            features = [col for col in features if col not in non_numeric_cols]
+            
+            if not features:
+                st.error("No numeric features available for modeling after exclusions.")
+                return None
+                
+        # Prepare data for modeling
+        X = self.df[features].select_dtypes(include=[np.number])
         y = self.df[target_column]
-
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
-
-        # Train model
-        if problem_type == 'classification':
-            model = RandomForestClassifier(n_estimators=100, random_state=42)
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            accuracy = accuracy_score(y_test, y_pred)
-            return {
-                'accuracy': accuracy,
-                'feature_importance': dict(zip(X.columns, model.feature_importances_))
-            }
-        else:  # regression
-            model = RandomForestRegressor(n_estimators=100, random_state=42)
-            model.fit(X_train, y_train)
-            y_pred = model.predict(X_test)
-            mse = mean_squared_error(y_test, y_pred)
-            r2 = r2_score(y_test, y_pred)
-            return {
-                'mse': mse,
-                'r2': r2,
-                'feature_importance': dict(zip(X.columns, model.feature_importances_))
-            }
+        
+        # Check for missing values and handle
+        missing_in_X = X.isnull().sum().sum()
+        missing_in_y = y.isnull().sum()
+        
+        if missing_in_X > 0 or missing_in_y > 0:
+            st.warning(f"⚠️ Dataset contains missing values: {missing_in_X} in features, {missing_in_y} in target")
+            st.info("Rows with missing values will be excluded from modeling.")
+            
+            # Remove rows with missing values
+            valid_indices = X.dropna().index.intersection(y.dropna().index)
+            X = X.loc[valid_indices]
+            y = y.loc[valid_indices]
+            
+            st.write(f"Modeling with {len(X)} complete rows (removed {len(self.df) - len(X)} rows with missing values)")
+            
+        try:
+            # Split data
+            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=42)
+            
+            # Train model based on problem type
+            if problem_type == 'classification':
+                try:
+                    model = RandomForestClassifier(n_estimators=100, random_state=42)
+                    model.fit(X_train, y_train)
+                    
+                    # Make predictions
+                    y_pred = model.predict(X_test)
+                    
+                    # Calculate metrics
+                    accuracy = accuracy_score(y_test, y_pred)
+                    f1 = f1_score(y_test, y_pred, average='weighted')
+                    
+                    # Feature importance
+                    importance = dict(zip(X.columns, model.feature_importances_))
+                    
+                    return {
+                        'accuracy': accuracy,
+                        'f1_score': f1,
+                        'feature_importance': importance
+                    }
+                    
+                except Exception as e:
+                    if "Unknown label type" in str(e):
+                        st.error("Error: Target values are not suitable for classification. Try regression instead.")
+                    else:
+                        st.error(f"Classification model error: {str(e)}")
+                    return None
+                    
+            elif problem_type == 'regression':
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+                model.fit(X_train, y_train)
+                
+                # Make predictions
+                y_pred = model.predict(X_test)
+                
+                # Calculate metrics
+                r2 = r2_score(y_test, y_pred)
+                mae = mean_absolute_error(y_test, y_pred)
+                
+                # Feature importance
+                importance = dict(zip(X.columns, model.feature_importances_))
+                
+                return {
+                    'r2_score': r2,
+                    'mean_absolute_error': mae,
+                    'feature_importance': importance
+                }
+                
+            else:
+                st.error(f"Unknown problem type: {problem_type}")
+                return None
+                
+        except Exception as e:
+            st.error(f"Error during model training: {str(e)}")
+            st.info("This could be due to incompatible data types or other issues.")
+            return None
 
     def remove_duplicates(self):
         """
@@ -1259,6 +1517,63 @@ class DataCleaner:
         
         return results
 
+    def is_likely_id_column(self, column):
+        """
+        Detect if a column is likely to be an ID column based on:
+        1. Column name containing 'id', 'num', 'code', 'no' etc.
+        2. Having mostly unique values (>80% of values are unique)
+        3. Contains alphanumeric patterns typical of IDs
+        
+        Args:
+            column (str): The column to check
+            
+        Returns:
+            bool: True if it's likely an ID column
+            str: Reason why it was flagged as ID
+        """
+        if column not in self.df.columns:
+            return False, ""
+            
+        # Check column name patterns
+        name_patterns = ['id', 'num', 'code', 'no', 'key', 'uuid', 'guid']
+        col_lower = column.lower()
+        if any(pattern in col_lower for pattern in name_patterns):
+            name_match = True
+        else:
+            name_match = False
+            
+        # Check uniqueness
+        unique_ratio = self.df[column].nunique() / len(self.df)
+        high_uniqueness = unique_ratio > 0.8
+        
+        # Check for alphanumeric patterns in string columns
+        if pd.api.types.is_object_dtype(self.df[column]):
+            # Sample values
+            sample = self.df[column].dropna().astype(str).sample(min(100, len(self.df))).tolist()
+            # Check if contains mix of letters and numbers
+            has_alphanumeric = any(re.search(r'[A-Za-z].*[0-9]|[0-9].*[A-Za-z]', str(val)) for val in sample if isinstance(val, str))
+            # Check for common ID patterns like "A-123" or "ABC123"
+            has_id_pattern = any(re.search(r'^[A-Za-z\-]+[0-9]+$|^[0-9]+[-_/][0-9A-Za-z]+$', str(val)) for val in sample if isinstance(val, str))
+        else:
+            has_alphanumeric = False
+            has_id_pattern = False
+            
+        # Determine if it's an ID based on multiple factors
+        is_id = False
+        reason = []
+        
+        if name_match and high_uniqueness:
+            is_id = True
+            reason.append(f"Column name contains ID-like terms and {unique_ratio:.1%} of values are unique")
+        elif high_uniqueness and (has_alphanumeric or has_id_pattern):
+            is_id = True
+            reason.append(f"Contains ID-like patterns and {unique_ratio:.1%} of values are unique")
+        elif unique_ratio > 0.95:
+            is_id = True
+            reason.append(f"Extremely high uniqueness ({unique_ratio:.1%} unique values)")
+            
+        return is_id, "; ".join(reason)
+
 def main():
     st.title("AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖")
 
@@ -1342,9 +1657,92 @@ def main():
                 if st.checkbox("Scale Numeric Features"):
                     numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
                     if len(numeric_cols) > 0:
-                        selected_nums = st.multiselect("Select numeric columns to scale:", numeric_cols)
+                        st.write("##### Scale Numeric Features")
+                        st.write("Scaling transforms values to be in similar ranges, which helps many ML algorithms perform better.")
+                        
+                        # Add scaler type selection
+                        scaler_type = st.selectbox(
+                            "Select scaling method:", 
+                            ["standard", "minmax", "robust"],
+                            format_func=lambda x: {
+                                "standard": "Standard (Z-score scaling, centers around mean of 0 and std of 1)",
+                                "minmax": "Min-Max (Scales to range 0-1, preserves distribution shape)",
+                                "robust": "Robust (Uses median/IQR, robust to outliers)"
+                            }[x],
+                            help="Choose the scaling technique based on your data characteristics and analysis needs."
+                        )
+
+                        # Show explanation of selected method
+                        if scaler_type == "standard":
+                            st.info("Standard scaling subtracts mean and divides by standard deviation. Best for data with normal distribution.")
+                        elif scaler_type == "minmax":
+                            st.info("Min-Max scaling transforms values to 0-1 range. Good when you need bounded values.")
+                        else:  # robust
+                            st.info("Robust scaling uses median and IQR instead of mean/std. Ideal when data contains outliers.")
+                        
+                        # Get numeric columns with flags for potential ID columns
+                        id_flags = {}
+                        for col in numeric_cols:
+                            is_id, reason = cleaner.is_likely_id_column(col)
+                            if is_id:
+                                id_flags[col] = reason
+                        
+                        # Display numeric columns with warnings for ID columns
+                        st.write("#### Available Numeric Columns:")
+                        
+                        # Create a dataframe for better display
+                        col_info = []
+                        for col in numeric_cols:
+                            # Check if it's an ID column
+                            is_id = col in id_flags
+                            # Get sample values and summary stats
+                            sample_vals = df[col].dropna().head(3).tolist()
+                            sample_str = ", ".join([str(val) for val in sample_vals])
+                            
+                            # Stats
+                            try:
+                                mean_val = df[col].mean()
+                                min_val = df[col].min()
+                                max_val = df[col].max()
+                                stats = f"Range: {min_val:.2f} to {max_val:.2f}, Mean: {mean_val:.2f}"
+                            except:
+                                stats = "Stats unavailable"
+                                
+                            col_info.append({
+                                "Column": col,
+                                "Type": str(df[col].dtype),
+                                "Is ID": "⚠️ Yes" if is_id else "No",
+                                "Sample Values": sample_str,
+                                "Statistics": stats
+                            })
+                            
+                        # Display as a dataframe
+                        col_df = pd.DataFrame(col_info)
+                        st.dataframe(col_df)
+                        
+                        # Display ID column warnings
+                        if id_flags:
+                            st.warning("⚠️ Some columns may be identifiers (IDs) which typically shouldn't be scaled:")
+                            for col, reason in id_flags.items():
+                                st.markdown(f"- **{col}**: {reason}")
+                        
+                        # Column selection with ID columns highlighted
+                        options = []
+                        for col in numeric_cols:
+                            if col in id_flags:
+                                options.append(f"⚠️ {col} (ID)")
+                            else:
+                                options.append(col)
+                        
+                        # Let user select columns to scale
+                        selected_opts = st.multiselect("Select numeric columns to scale:", options)
+                        
+                        # Convert option strings back to actual column names
+                        selected_nums = [opt.split(" (ID)")[0].replace("⚠️ ", "") for opt in selected_opts]
+                        
                         if selected_nums:
-                            cleaner.scale_features(selected_nums)
+                            if st.button("Apply Scaling"):
+                                cleaner.scale_features(selected_nums, scaler_type)
                     else:
                         st.warning("No numeric columns available for scaling.")
 
