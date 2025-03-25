@@ -1574,6 +1574,239 @@ class DataCleaner:
             
         return is_id, "; ".join(reason)
 
+    def plot_categorical_distribution(self, column, plot_type='bar'):
+        """
+        Visualize the distribution of a categorical column with multiple plot types.
+
+        Args:
+            column (str): The column to plot
+            plot_type (str): Visualization type - 'bar', 'treemap', or 'lollipop'
+        """
+        # Check if column exists
+        if column not in self.df.columns:
+            st.error(f"Column '{column}' not found in the dataset.")
+            return
+            
+        # Get number of unique values
+        unique_count = self.df[column].nunique()
+        
+        # Validate if column has too many categories
+        if unique_count > 50:
+            st.error(f"⚠️ Column '{column}' has {unique_count} unique values, which is too many for effective visualization.")
+            st.info("Consider selecting a column with fewer categories or using a frequency-based encoding first.")
+            return
+            
+        # For numeric columns with many unique values
+        if pd.api.types.is_numeric_dtype(self.df[column]) and unique_count > 20:
+            st.warning(f"Column '{column}' appears to be numeric with {unique_count} unique values. Consider using a histogram instead.")
+            cont = st.checkbox("Continue anyway?")
+            if not cont:
+                return
+                
+        # Get value counts and prepare data
+        value_counts = self.df[column].value_counts()
+        
+        # Determine how many categories to display based on total count
+        if unique_count > 15:
+            display_count = 15
+            st.info(f"Showing top {display_count} categories from {unique_count} total categories.")
+        else:
+            display_count = unique_count
+            
+        # Option to sort values
+        sort_option = st.radio(
+            "Sort categories by:", 
+            ["Frequency (descending)", "Frequency (ascending)", "Alphabetical"],
+            horizontal=True
+        )
+        
+        if sort_option == "Frequency (descending)":
+            value_counts = value_counts.nlargest(display_count)
+        elif sort_option == "Frequency (ascending)":
+            value_counts = value_counts.nsmallest(display_count)
+        else:  # Alphabetical
+            value_counts = value_counts.sort_index().head(display_count)
+        
+        # If there are more categories than we're displaying, add "Other"
+        if unique_count > display_count:
+            # Get the displayed categories
+            displayed_cats = value_counts.index.tolist()
+            # Calculate sum of all other categories
+            other_sum = self.df[~self.df[column].isin(displayed_cats)][column].count()
+            
+            # Add "Other" category if it would be visible
+            if other_sum > 0:
+                # Create a new series with displayed categories + "Other"
+                plot_data = pd.Series(
+                    list(value_counts.values) + [other_sum], 
+                    index=list(value_counts.index) + ['Other']
+                )
+            else:
+                plot_data = value_counts
+        else:
+            plot_data = value_counts
+            
+        # Create the visualization based on selected type
+        if plot_type == 'bar':
+            self._plot_bar_chart(column, plot_data)
+        elif plot_type == 'treemap':
+            self._plot_treemap(column, plot_data)
+        elif plot_type == 'lollipop':
+            self._plot_lollipop_chart(column, plot_data)
+        elif plot_type == 'pie':
+            self._plot_pie_chart(column, plot_data)
+        else:
+            st.error(f"Unknown plot type: {plot_type}")
+    
+    def _plot_bar_chart(self, column, plot_data):
+        """Helper method to create a horizontal bar chart."""
+        if PLOTLY_AVAILABLE:
+            # Create interactive Plotly bar chart
+            fig = px.bar(
+                y=plot_data.index.astype(str),
+                x=plot_data.values,
+                title=f'Distribution of {column}',
+                labels={'y': column, 'x': 'Count'},
+                height=max(400, len(plot_data) * 30),  # Dynamic height based on categories
+                orientation='h'  # Horizontal
+            )
+            # Add count labels
+            fig.update_traces(texttemplate='%{x}', textposition='outside')
+            # Update layout
+            fig.update_layout(
+                yaxis={'categoryorder': 'total ascending'},
+                xaxis_title="Count",
+                yaxis_title=column
+            )
+            st.plotly_chart(fig)
+        else:
+            # Matplotlib fallback
+            fig, ax = plt.subplots(figsize=(10, max(6, len(plot_data) * 0.4)))
+            # Plot horizontal bars
+            plot_data.plot.barh(ax=ax)
+            # Add counts as text
+            for i, v in enumerate(plot_data.values):
+                ax.text(v + 0.1, i, str(v), va='center')
+            plt.title(f'Distribution of {column}')
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+    
+    def _plot_treemap(self, column, plot_data):
+        """Helper method to create a treemap visualization."""
+        if PLOTLY_AVAILABLE:
+            # Create a DataFrame for the treemap
+            df_treemap = pd.DataFrame({
+                'labels': plot_data.index.astype(str),
+                'values': plot_data.values,
+                'percentages': (plot_data.values / plot_data.values.sum() * 100).round(1)
+            })
+            
+            # Create the treemap
+            fig = px.treemap(
+                df_treemap,
+                names='labels',
+                values='values',
+                title=f'Distribution of {column}',
+                height=500
+            )
+            
+            # Customize text to show both count and percentage
+            fig.update_traces(
+                textinfo='label+value+percent',
+                texttemplate='%{label}<br>%{value} (%{percentRoot:.1%})'
+            )
+            
+            st.plotly_chart(fig)
+        else:
+            st.warning("Treemap visualization requires Plotly. Using bar chart instead.")
+            self._plot_bar_chart(column, plot_data)
+    
+    def _plot_lollipop_chart(self, column, plot_data):
+        """Helper method to create a lollipop chart."""
+        if PLOTLY_AVAILABLE:
+            # Create a scatter plot with lines for lollipop effect
+            fig = go.Figure()
+            
+            # Add lines
+            fig.add_trace(go.Scatter(
+                x=plot_data.values,
+                y=plot_data.index.astype(str),
+                mode='lines',
+                line=dict(color='rgba(0,0,0,0.3)', width=1),
+                showlegend=False
+            ))
+            
+            # Add markers
+            fig.add_trace(go.Scatter(
+                x=plot_data.values,
+                y=plot_data.index.astype(str),
+                mode='markers',
+                marker=dict(
+                    color='rgba(31, 119, 180, 0.8)',
+                    size=12
+                ),
+                text=plot_data.values,
+                textposition='middle right',
+                showlegend=False
+            ))
+            
+            # Update layout
+            fig.update_layout(
+                title=f'Distribution of {column}',
+                xaxis_title='Count',
+                yaxis_title=column,
+                yaxis={'categoryorder': 'total ascending'},
+                height=max(400, len(plot_data) * 30),
+                margin=dict(l=100)
+            )
+            
+            st.plotly_chart(fig)
+        else:
+            st.warning("Lollipop chart visualization requires Plotly. Using bar chart instead.")
+            self._plot_bar_chart(column, plot_data)
+    
+    def _plot_pie_chart(self, column, plot_data):
+        """Helper method to create a pie chart (maintained for compatibility)."""
+        if len(plot_data) > 10:
+            st.warning("Pie charts are not recommended for more than 10 categories. Consider using the bar chart option instead.")
+            
+        # Create the pie chart
+        if PLOTLY_AVAILABLE:
+            # Create an interactive plotly pie chart
+            fig = px.pie(
+                values=plot_data.values,
+                names=plot_data.index.astype(str),
+                title=f'Distribution of {column}',
+                hole=0.3,  # Create a donut chart for better readability
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            fig.update_layout(uniformtext_minsize=10, uniformtext_mode='hide')
+            st.plotly_chart(fig)
+        else:
+            # Matplotlib fallback
+            fig = plt.figure(figsize=(10, 8))
+            plt.pie(plot_data.values, labels=plot_data.index.astype(str), 
+                   autopct='%1.1f%%', startangle=90, 
+                   wedgeprops={'linewidth': 1, 'edgecolor': 'white'})
+            plt.title(f'Distribution of {column}')
+            plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+            st.pyplot(fig)
+            plt.close()
+            
+    # For backward compatibility, maintain the plot_pie_chart function
+    def plot_pie_chart(self, column):
+        """
+        Create a pie chart for categorical columns.
+        This function is maintained for backward compatibility.
+        Consider using plot_categorical_distribution instead.
+        
+        Args:
+            column (str): The column to plot.
+        """
+        st.warning("Pie charts are generally not the most effective visualization. Consider bar charts or treemaps for better comparison.")
+        return self.plot_categorical_distribution(column, plot_type='pie')
+
 def main():
     st.title("AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖")
 
@@ -1790,21 +2023,388 @@ def main():
             if st.sidebar.checkbox("Data Visualization"):
                 st.write("### Data Visualization")
                 
-                # Column selection for visualizations
-                viz_col = st.selectbox("Select column for visualization:", df.columns)
-                
-                # Visualization options
+                # Visualization type selection
                 viz_type = st.selectbox(
                     "Select visualization type:",
-                    ["Distribution Plot", "Pie Chart", "Box Plot"]
+                    ["Categorical Distribution", "Distribution Plot", "Box Plot", "Correlation", "Scatter Plot"]
                 )
                 
-                if viz_type == "Distribution Plot":
-                    cleaner.plot_distribution(viz_col)
-                elif viz_type == "Pie Chart":
-                    cleaner.plot_pie_chart(viz_col)
+                if viz_type == "Categorical Distribution":
+                    st.write("#### Categorical Distribution")
+                    st.write("Visualize the distribution of values in a categorical column.")
+                    
+                    # Column selection based on data types with info
+                    all_cols = df.columns.tolist()
+                    categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    # Add columns with low cardinality from numeric columns
+                    for col in numeric_cols:
+                        if df[col].nunique() < 20:  # Low cardinality numeric columns can be treated as categorical
+                            categorical_cols.append(col)
+                    
+                    # Remove duplicates and sort
+                    categorical_cols = sorted(list(set(categorical_cols)))
+                    
+                    if not categorical_cols:
+                        st.warning("No categorical columns detected. Please select any column to visualize:")
+                        viz_col = st.selectbox("Select column:", all_cols)
+                    else:
+                        viz_col = st.selectbox("Select categorical column:", categorical_cols)
+                    
+                    # Visualization method selection with descriptions
+                    plot_method = st.selectbox(
+                        "Select visualization method:",
+                        ["bar", "treemap", "lollipop", "pie"],
+                        format_func=lambda x: {
+                            "bar": "Bar Chart (best for precise comparison)",
+                            "treemap": "Treemap (good for hierarchical proportions)",
+                            "lollipop": "Lollipop Chart (elegant alternative to bars)",
+                            "pie": "Pie Chart (shows parts of a whole, limited accuracy)"
+                        }[x]
+                    )
+                    
+                    # Preview of first few values
+                    st.write(f"Preview of '{viz_col}' values:")
+                    value_counts = df[viz_col].value_counts().head(5)
+                    preview_df = pd.DataFrame({
+                        'Value': value_counts.index,
+                        'Count': value_counts.values,
+                        'Percentage': (value_counts.values / len(df) * 100).round(2)
+                    })
+                    st.dataframe(preview_df)
+                    
+                    # Apply visualization
+                    if st.button("Generate Visualization"):
+                        cleaner.plot_categorical_distribution(viz_col, plot_method)
+                
+                elif viz_type == "Distribution Plot":
+                    st.write("#### Distribution Plot")
+                    st.write("Visualize the distribution of a numeric column.")
+                    
+                    # Only show numeric columns
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    if not numeric_cols:
+                        st.error("No numeric columns available for distribution plots.")
+                    else:
+                        viz_col = st.selectbox("Select numeric column:", numeric_cols)
+                        cleaner.plot_distribution(viz_col)
+                
                 elif viz_type == "Box Plot":
-                    cleaner.plot_box_plot(viz_col)
+                    st.write("#### Box Plot")
+                    st.write("Visualize the distribution and identify outliers in numeric data.")
+                    
+                    # Only show numeric columns
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    if not numeric_cols:
+                        st.error("No numeric columns available for box plots.")
+                    else:
+                        viz_col = st.selectbox("Select numeric column:", numeric_cols)
+                        
+                        # Option to group by a categorical column
+                        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                        
+                        if categorical_cols:
+                            use_groups = st.checkbox("Group by categorical variable?")
+                            if use_groups:
+                                group_col = st.selectbox("Select grouping column:", categorical_cols)
+                                
+                                # Check if the grouping column has too many categories
+                                n_categories = df[group_col].nunique()
+                                if n_categories > 10:
+                                    st.warning(f"Selected grouping column has {n_categories} categories, which may make the plot cluttered.")
+                                    
+                                    # Offer to show only top categories
+                                    use_top = st.checkbox("Show only top categories?", value=True)
+                                    if use_top:
+                                        top_n = st.slider("Number of top categories:", 3, 10, 5)
+                                        top_cats = df[group_col].value_counts().nlargest(top_n).index.tolist()
+                                        filtered_df = df[df[group_col].isin(top_cats)]
+                                        
+                                        # Create boxplot with filtered data
+                                        if PLOTLY_AVAILABLE:
+                                            fig = px.box(filtered_df, x=group_col, y=viz_col, 
+                                                       title=f"Box Plot of {viz_col} by {group_col} (Top {top_n} categories)")
+                                            st.plotly_chart(fig)
+                                        else:
+                                            fig, ax = plt.subplots(figsize=(12, 6))
+                                            sns.boxplot(x=group_col, y=viz_col, data=filtered_df, ax=ax)
+                                            plt.title(f"Box Plot of {viz_col} by {group_col} (Top {top_n} categories)")
+                                            plt.xticks(rotation=45)
+                                            plt.tight_layout()
+                                            st.pyplot(fig)
+                                            plt.close()
+                                    else:
+                                        cleaner.plot_box_plot(viz_col, group_col)
+                                else:
+                                    cleaner.plot_box_plot(viz_col, group_col)
+                            else:
+                                cleaner.plot_box_plot(viz_col)
+                        else:
+                            cleaner.plot_box_plot(viz_col)
+                
+                elif viz_type == "Correlation":
+                    st.write("#### Correlation Analysis")
+                    st.write("Visualize relationships between numeric variables.")
+                    
+                    # Option for correlation type
+                    corr_type = st.radio(
+                        "Select correlation visualization:",
+                        ["Heatmap", "Pairplot"], 
+                        horizontal=True
+                    )
+                    
+                    if corr_type == "Heatmap":
+                        # Option to filter variables
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                        
+                        if len(numeric_cols) > 10:
+                            st.warning(f"Dataset has {len(numeric_cols)} numeric columns. Showing all may create a cluttered heatmap.")
+                            use_filter = st.checkbox("Select specific columns?", value=True)
+                            
+                            if use_filter:
+                                selected_cols = st.multiselect(
+                                    "Choose columns for correlation analysis:",
+                                    numeric_cols,
+                                    default=numeric_cols[:6]
+                                )
+                                
+                                if selected_cols:
+                                    if PLOTLY_AVAILABLE:
+                                        corr = df[selected_cols].corr()
+                                        fig = px.imshow(
+                                            corr,
+                                            text_auto='.2f',
+                                            color_continuous_scale='RdBu_r',
+                                            zmin=-1, zmax=1,
+                                            title="Correlation Heatmap"
+                                        )
+                                        st.plotly_chart(fig)
+                                    else:
+                                        fig, ax = plt.subplots(figsize=(10, 8))
+                                        corr = df[selected_cols].corr()
+                                        sns.heatmap(corr, annot=True, cmap='coolwarm', vmin=-1, vmax=1, ax=ax)
+                                        plt.title("Correlation Heatmap")
+                                        st.pyplot(fig)
+                                        plt.close()
+                                else:
+                                    st.info("Please select at least one column.")
+                            else:
+                                cleaner.plot_correlation_heatmap()
+                        else:
+                            cleaner.plot_correlation_heatmap()
+                    
+                    elif corr_type == "Pairplot":
+                        # For pairplot, limit to fewer variables to avoid visual overload
+                        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                        
+                        if len(numeric_cols) < 2:
+                            st.error("Need at least 2 numeric columns for pairplot.")
+                        else:
+                            # Select a subset of columns
+                            max_cols = min(6, len(numeric_cols))
+                            selected_cols = st.multiselect(
+                                "Choose columns for pairplot (recommended: 2-6 columns):",
+                                numeric_cols,
+                                default=numeric_cols[:min(4, max_cols)]
+                            )
+                            
+                            # Option to color by a categorical variable
+                            categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                            color_by = None
+                            
+                            if categorical_cols:
+                                use_color = st.checkbox("Color by categorical variable?")
+                                if use_color:
+                                    color_by = st.selectbox("Select coloring variable:", categorical_cols)
+                                    
+                                    # Check for too many categories
+                                    n_categories = df[color_by].nunique()
+                                    if n_categories > 10:
+                                        st.warning(f"Selected coloring variable has {n_categories} categories, which may make the plot unclear.")
+                                        use_top = st.checkbox("Use only top categories for coloring?", value=True)
+                                        
+                                        if use_top:
+                                            top_n = st.slider("Number of top categories:", 3, 10, 5)
+                                            top_cats = df[color_by].value_counts().nlargest(top_n).index.tolist()
+                                            
+                                            # Create pairplot with filtered data
+                                            if len(selected_cols) >= 2:
+                                                filtered_df = df[df[color_by].isin(top_cats)]
+                                                if len(filtered_df) > 0:
+                                                    fig = sns.pairplot(
+                                                        filtered_df,
+                                                        vars=selected_cols,
+                                                        hue=color_by,
+                                                        diag_kind='kde',
+                                                        plot_kws={'alpha': 0.6}
+                                                    )
+                                                    st.pyplot(fig)
+                                                    plt.close()
+                                                else:
+                                                    st.error("No data available with the selected categories.")
+                                            else:
+                                                st.info("Please select at least 2 columns for the pairplot.")
+                                        else:
+                                            # Create regular pairplot with all categories
+                                            if len(selected_cols) >= 2:
+                                                fig = sns.pairplot(
+                                                    df,
+                                                    vars=selected_cols, 
+                                                    hue=color_by,
+                                                    diag_kind='kde',
+                                                    plot_kws={'alpha': 0.6}
+                                                )
+                                                st.pyplot(fig)
+                                                plt.close()
+                                            else:
+                                                st.info("Please select at least 2 columns for the pairplot.")
+                                    else:
+                                        # Create pairplot with manageable categories
+                                        if len(selected_cols) >= 2:
+                                            fig = sns.pairplot(
+                                                df, 
+                                                vars=selected_cols, 
+                                                hue=color_by,
+                                                diag_kind='kde',
+                                                plot_kws={'alpha': 0.6}
+                                            )
+                                            st.pyplot(fig)
+                                            plt.close()
+                                        else:
+                                            st.info("Please select at least 2 columns for the pairplot.")
+                            else:
+                                # Create pairplot without categorical coloring
+                                if len(selected_cols) >= 2:
+                                    fig = sns.pairplot(
+                                        df, 
+                                        vars=selected_cols,
+                                        diag_kind='kde',
+                                        plot_kws={'alpha': 0.6}
+                                    )
+                                    st.pyplot(fig)
+                                    plt.close()
+                                else:
+                                    st.info("Please select at least 2 columns for the pairplot.")
+                                    
+                elif viz_type == "Scatter Plot":
+                    st.write("#### Scatter Plot")
+                    st.write("Visualize relationship between two numeric variables.")
+                    
+                    # Only show numeric columns
+                    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+                    
+                    if len(numeric_cols) < 2:
+                        st.error("Need at least 2 numeric columns for scatter plot.")
+                    else:
+                        x_col = st.selectbox("Select X-axis column:", numeric_cols)
+                        y_col = st.selectbox("Select Y-axis column:", 
+                                          [col for col in numeric_cols if col != x_col], 
+                                          index=min(1, len(numeric_cols)-1))
+                        
+                        # Optional color by categorical variable
+                        categorical_cols = df.select_dtypes(include=['object', 'category']).columns.tolist()
+                        color_by = None
+                        size_by = None
+                        
+                        # Advanced options
+                        with st.expander("Advanced Options"):
+                            if categorical_cols:
+                                use_color = st.checkbox("Color points by category?")
+                                if use_color:
+                                    color_by = st.selectbox("Select coloring variable:", categorical_cols)
+                            
+                            # Size points by numeric value
+                            use_size = st.checkbox("Size points by numeric value?")
+                            if use_size:
+                                size_options = [col for col in numeric_cols if col not in [x_col, y_col]]
+                                if size_options:
+                                    size_by = st.selectbox("Select sizing variable:", size_options)
+                                else:
+                                    st.info("No additional numeric columns available for sizing.")
+                                    
+                            # Add trendline option
+                            add_trendline = st.checkbox("Add trendline?", value=True)
+                            
+                            # Add jitter for categorical x or y
+                            add_jitter = False
+                            if (df[x_col].nunique() < 20 or df[y_col].nunique() < 20):
+                                add_jitter = st.checkbox("Add jitter to points?", 
+                                                       help="Adds random noise to prevent overplotting with repeated values")
+                                
+                        # Create the scatter plot
+                        if PLOTLY_AVAILABLE:
+                            # Build scatter plot with Plotly
+                            scatter_kwargs = {
+                                'x': x_col,
+                                'y': y_col,
+                                'title': f'Scatter Plot of {y_col} vs {x_col}',
+                                'labels': {x_col: x_col, y_col: y_col},
+                                'hover_data': [x_col, y_col]
+                            }
+                            
+                            if color_by:
+                                scatter_kwargs['color'] = color_by
+                            
+                            if size_by:
+                                scatter_kwargs['size'] = size_by
+                                scatter_kwargs['size_max'] = 15
+                            
+                            # Create figure
+                            fig = px.scatter(**scatter_kwargs, data_frame=df)
+                            
+                            # Add trendline if requested
+                            if add_trendline:
+                                if color_by:
+                                    fig.update_layout(title=f'Scatter Plot with trendlines grouped by {color_by}')
+                                    fig = px.scatter(
+                                        df, x=x_col, y=y_col, color=color_by,
+                                        trendline="ols", trendline_scope="overall" if len(df[color_by].unique()) > 5 else "trace",
+                                        trendline_color_override="black"
+                                    )
+                                else:
+                                    fig = px.scatter(df, x=x_col, y=y_col, trendline="ols")
+                                    
+                            st.plotly_chart(fig)
+                        else:
+                            # Matplotlib fallback
+                            fig, ax = plt.subplots(figsize=(10, 6))
+                            
+                            scatter_kwargs = {'x': x_col, 'y': y_col, 'data': df, 'alpha': 0.7}
+                            
+                            if color_by:
+                                scatter_kwargs['hue'] = color_by
+                            
+                            if size_by:
+                                scatter_kwargs['size'] = size_by
+                            
+                            if add_jitter:
+                                scatter_kwargs['x_jitter'] = True
+                                scatter_kwargs['y_jitter'] = True
+                                
+                            # Create scatter plot
+                            sns.scatterplot(**scatter_kwargs, ax=ax)
+                            
+                            # Add trendline if requested
+                            if add_trendline:
+                                if color_by and df[color_by].nunique() <= 5:
+                                    # Add trendline for each category
+                                    for category, group in df.groupby(color_by):
+                                        sns.regplot(x=x_col, y=y_col, data=group, 
+                                                  scatter=False, ax=ax, label=f"Trend: {category}")
+                                else:
+                                    # Add overall trendline
+                                    sns.regplot(x=x_col, y=y_col, data=df, 
+                                              scatter=False, ax=ax, line_kws={'color': 'black'})
+                            
+                            plt.title(f'Scatter Plot of {y_col} vs {x_col}')
+                            plt.xlabel(x_col)
+                            plt.ylabel(y_col)
+                            plt.tight_layout()
+                            st.pyplot(fig)
+                            plt.close()
                 
                 # Correlation heatmap for numeric columns
                 if st.checkbox("Show Correlation Heatmap"):
