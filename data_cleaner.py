@@ -22,6 +22,8 @@ from statsmodels.tsa.stattools import adfuller
 from prophet import Prophet
 import re
 import warnings
+import time
+import math
 
 # Add plotly for interactive plots
 try:
@@ -31,6 +33,41 @@ try:
 except ImportError:
     PLOTLY_AVAILABLE = False
     st.warning("Plotly not installed. Install with 'pip install plotly' for interactive plots.")
+
+def safe_display_dataframe(df, cleaner=None, **kwargs):
+    """
+    Safely display a dataframe in Streamlit by ensuring it's compatible with PyArrow.
+    This avoids common Arrow serialization errors.
+    
+    Args:
+        df (pd.DataFrame): DataFrame to display
+        cleaner (DataCleaner, optional): DataCleaner instance, created if None
+        **kwargs: Additional arguments to pass to st.dataframe
+        
+    Returns:
+        The result of st.dataframe
+    """
+    if df is None or df.empty:
+        return st.dataframe(pd.DataFrame(), **kwargs)
+    
+    try:
+        # If cleaner is not provided, create a temporary one
+        if cleaner is None:
+            from copy import deepcopy
+            # Create a DataCleaner with a copy of the dataframe
+            temp_cleaner = DataCleaner(deepcopy(df))
+            # Make the dataframe Arrow-compatible
+            safe_df = temp_cleaner.ensure_arrow_compatible(df)
+        else:
+            # Use the provided cleaner
+            safe_df = cleaner.ensure_arrow_compatible(df)
+            
+        # Display the safe dataframe
+        return st.dataframe(safe_df, **kwargs)
+    except Exception as e:
+        # Fallback to displaying as strings if all else fails
+        st.warning(f"Error preparing dataframe for display: {str(e)}. Showing text representation.")
+        return st.dataframe(df.astype(str), **kwargs)
 
 class DataCleaner:
     """
@@ -566,6 +603,44 @@ class DataCleaner:
             pd.DataFrame: The cleaned DataFrame
         """
         return self.df.copy()
+        
+    def ensure_arrow_compatible(self, df):
+        """
+        Ensures DataFrame is compatible with PyArrow for Streamlit display.
+        Fixes common type conversion issues.
+        
+        Args:
+            df (pd.DataFrame): DataFrame to make Arrow-compatible
+            
+        Returns:
+            pd.DataFrame: Arrow-compatible DataFrame
+        """
+        # Make a copy to avoid modifying the original
+        result_df = df.copy()
+        
+        # Check each column for potential issues
+        for col in result_df.columns:
+            # Skip if column is already a numeric or date type
+            if pd.api.types.is_numeric_dtype(result_df[col]) or pd.api.types.is_datetime64_dtype(result_df[col]):
+                continue
+                
+            # Check if column contains mixed types (alphanumeric values)
+            if pd.api.types.is_object_dtype(result_df[col]):
+                # Try to convert to numeric, but keep as string if it contains non-numeric values
+                try:
+                    numeric_col = pd.to_numeric(result_df[col], errors='coerce')
+                    # If we have any non-numeric values (NaN after conversion), keep as string
+                    if numeric_col.isna().any() and not result_df[col].isna().any():
+                        # Ensure the column is explicitly string type to avoid PyArrow conversion issues
+                        result_df[col] = result_df[col].astype(str)
+                    else:
+                        # If conversion to numeric works for all values, use that
+                        result_df[col] = numeric_col
+                except:
+                    # Ensure string type for problematic columns
+                    result_df[col] = result_df[col].astype(str)
+        
+        return result_df
 
     def reset(self):
         """
@@ -1893,9 +1968,29 @@ class DataCleaner:
         Returns:
             tuple: (forecast_results DataFrame, plotly figure)
         """
+        # Check for plotly availability
+        if not PLOTLY_AVAILABLE:
+            st.error("Plotly is required for forecasting visualizations. Please install with 'pip install plotly'")
+            return None, None
+            
+        # Import plotly explicitly here to avoid any issues
+        import plotly.graph_objects as go
+        
         # Ensure date column is datetime
         forecast_df = self.df.copy()
-        forecast_df[date_column] = pd.to_datetime(forecast_df[date_column])
+        
+        # Use the improved date conversion
+        date_format = self.detect_date_format(forecast_df[date_column])
+        if date_format:
+            forecast_df[date_column] = pd.to_datetime(forecast_df[date_column], format=date_format, errors='coerce')
+        else:
+            forecast_df[date_column] = pd.to_datetime(forecast_df[date_column], errors='coerce')
+        
+        # Check for invalid dates
+        invalid_dates = forecast_df[forecast_df[date_column].isna()]
+        if not invalid_dates.empty:
+            st.warning(f"Warning: {len(invalid_dates)} rows have invalid dates and will be dropped.")
+            forecast_df = forecast_df.dropna(subset=[date_column])
         
         # Sort by date
         forecast_df = forecast_df.sort_values(date_column)
@@ -2003,7 +2098,6 @@ class DataCleaner:
                 # Convert to plotly figure
                 if PLOTLY_AVAILABLE:
                     import plotly.express as px
-                    import plotly.graph_objects as go
                     from plotly.subplots import make_subplots
                     
                     # Get number of components
@@ -2038,25 +2132,75 @@ class DataCleaner:
                 # ARIMA model
                 from pmdarima import auto_arima
                 
+                # Prepare time series data
+                ts_data = forecast_df.set_index(date_column)[demand_column]
+                
+                # Determine seasonality periods 
+                if seasonality == 'yearly':
+                    seasonal_m = 12  # Monthly data, yearly seasonality
+                elif seasonality == 'quarterly':
+                    seasonal_m = 4
+                elif seasonality == 'weekly':
+                    seasonal_m = 7  # Daily data, weekly seasonality
+                elif seasonality == 'daily':
+                    seasonal_m = 24  # Hourly data, daily seasonality
+                else:
+                    # Auto-detect based on frequency
+                    if ts_data.index.freq is None:
+                        # Infer frequency
+                        ts_data = ts_data.asfreq(pd.infer_freq(ts_data.index))
+                    
+                    freq = ts_data.index.freq
+                    if freq is None:
+                        # Fall back to default if inference fails
+                        seasonal_m = 12
+                    elif freq.startswith('D'):
+                        seasonal_m = 7  # Daily data
+                    elif freq.startswith('M'):
+                        seasonal_m = 12  # Monthly data
+                    elif freq.startswith('H'):
+                        seasonal_m = 24  # Hourly data
+                    else:
+                        seasonal_m = 12  # Default
+                
                 # Fit model
-                model = auto_arima(forecast_df[demand_column],
-                                 seasonal=True,
-                                 m=12 if seasonality=='yearly' else 
-                                   52 if seasonality=='weekly' else 
-                                   7 if seasonality=='daily' else 12,
-                                 suppress_warnings=True)
+                model = auto_arima(ts_data,
+                               seasonal=True,
+                               m=seasonal_m,
+                               suppress_warnings=True)
                 
-                # Make predictions
-                forecast, conf_int = model.predict(n_periods=forecast_periods, 
-                                                return_conf_int=True)
-                
-                # Create future dates
+                # Create future dates for forecasting
                 last_date = forecast_df[date_column].max()
+                
+                # Infer frequency of data
+                if ts_data.index.freq is None:
+                    # Estimate frequency from the data
+                    date_diffs = forecast_df[date_column].diff().dropna()
+                    if not date_diffs.empty:
+                        median_diff = date_diffs.median()
+                        if median_diff.days == 1:
+                            freq = 'D'  # Daily
+                        elif 25 <= median_diff.days <= 32:
+                            freq = 'M'  # Monthly
+                        elif 85 <= median_diff.days <= 95:
+                            freq = 'Q'  # Quarterly
+                        else:
+                            freq = 'D'  # Default to daily
+                    else:
+                        freq = 'D'  # Default
+                else:
+                    freq = ts_data.index.freq
+                
+                # Create future dates with proper frequency
                 future_dates = pd.date_range(
                     start=last_date + pd.Timedelta(days=1),
                     periods=forecast_periods,
-                    freq='D'
+                    freq=freq
                 )
+                
+                # Make predictions
+                forecast, conf_int = model.predict(n_periods=forecast_periods, 
+                                              return_conf_int=True)
                 
                 # Prepare results
                 results = pd.DataFrame({
@@ -2120,36 +2264,89 @@ class DataCleaner:
                 # Exponential Smoothing
                 from statsmodels.tsa.holtwinters import ExponentialSmoothing
                 
-                # Determine seasonal periods
-                seasonal_periods = 12 if seasonality=='yearly' else \
-                                 52 if seasonality=='weekly' else \
-                                 7 if seasonality=='daily' else 1
+                # Prepare time series data with proper index
+                ts_data = forecast_df.set_index(date_column)[demand_column]
                 
-                # Fit model
+                # Infer frequency if not set
+                if ts_data.index.freq is None:
+                    # Try to infer frequency
+                    inferred_freq = pd.infer_freq(ts_data.index)
+                    if inferred_freq:
+                        ts_data = ts_data.asfreq(inferred_freq)
+                    else:
+                        # Manual frequency inference
+                        date_diffs = forecast_df[date_column].diff().dropna()
+                        if not date_diffs.empty:
+                            median_diff = date_diffs.median()
+                            if median_diff.days == 1:
+                                ts_data = ts_data.asfreq('D')  # Daily
+                            elif 25 <= median_diff.days <= 32:
+                                ts_data = ts_data.asfreq('M')  # Monthly
+                            elif 85 <= median_diff.days <= 95:
+                                ts_data = ts_data.asfreq('Q')  # Quarterly
+                            else:
+                                ts_data = ts_data.asfreq('D')  # Default to daily
+                        else:
+                            # If all else fails, resample to daily frequency
+                            ts_data = ts_data.resample('D').asfreq()
+                
+                # Determine seasonal periods based on frequency
+                seasonal_periods = 1  # Default to no seasonality
+                freq = ts_data.index.freq
+                
+                if freq:
+                    freq_str = str(freq)
+                    if freq_str.startswith('D'):
+                        seasonal_periods = 7  # Weekly seasonality for daily data
+                    elif freq_str.startswith('M'):
+                        seasonal_periods = 12  # Yearly seasonality for monthly data
+                    elif freq_str.startswith('H'):
+                        seasonal_periods = 24  # Daily seasonality for hourly data
+                    elif freq_str.startswith('Q'):
+                        seasonal_periods = 4  # Yearly seasonality for quarterly data
+                else:
+                    # Map user selection to periods
+                    seasonal_periods = 12 if seasonality=='yearly' else \
+                                     52 if seasonality=='weekly' else \
+                                     7 if seasonality=='daily' else 1
+                
+                # Fit model with appropriate seasonality
                 model = ExponentialSmoothing(
-                    forecast_df[demand_column],
+                    ts_data,
                     seasonal_periods=seasonal_periods,
-                    seasonal='add' if seasonal_periods > 1 else None
-                ).fit()
+                    seasonal='add' if seasonal_periods > 1 else None,
+                    initialization_method="estimated"
+                ).fit(optimized=True)
+                
+                # Generate future dates with proper frequency
+                if freq:
+                    future_dates = pd.date_range(
+                        start=ts_data.index[-1] + freq,
+                        periods=forecast_periods,
+                        freq=freq
+                    )
+                else:
+                    # If frequency couldn't be determined, use daily frequency
+                    future_dates = pd.date_range(
+                        start=ts_data.index[-1] + pd.Timedelta(days=1),
+                        periods=forecast_periods,
+                        freq='D'
+                    )
                 
                 # Make predictions
-                forecast = model.forecast(forecast_periods)
+                forecast = model.forecast(steps=forecast_periods)
                 
-                # Create future dates
-                last_date = forecast_df[date_column].max()
-                future_dates = pd.date_range(
-                    start=last_date + pd.Timedelta(days=1),
-                    periods=forecast_periods,
-                    freq='D'
-                )
+                # Align forecast with future_dates
+                future_index = pd.DatetimeIndex(future_dates)
+                forecast.index = future_index
                 
                 # Prepare results
                 results = pd.DataFrame({
                     'date': future_dates,
-                    'demand': forecast
+                    'demand': forecast.values
                 })
                 
-                # Plot results
+                # Plot results (with Plotly)
                 fig = go.Figure()
                 
                 # Historical values
@@ -2182,6 +2379,8 @@ class DataCleaner:
         
         except Exception as e:
             st.error(f"Forecasting error: {str(e)}")
+            import traceback
+            st.error(traceback.format_exc())
             return None, None
 
     def simulate_demand(self, n_periods=48, mean_sales=91.0, std_dev=10.0, trend=5.0, seasonality=True, promotions=True):
@@ -2623,7 +2822,8 @@ class DataCleaner:
                                                  scoring='neg_mean_squared_error', cv=5)),
                 'cv_r2': np.mean(cross_val_score(lasso, X_train_scaled, y_train, 
                                                scoring='r2', cv=5)),
-                'coefficients': dict(zip(X.columns, lasso.coef_))
+                'coefficients': dict(zip(X.columns, lasso.coef_)),
+                'predictions': lasso_pred  # Add predictions to results
             },
             'ridge': {
                 'mse': mean_squared_error(y_test, ridge_pred),
@@ -2632,11 +2832,551 @@ class DataCleaner:
                                                  scoring='neg_mean_squared_error', cv=5)),
                 'cv_r2': np.mean(cross_val_score(ridge, X_train_scaled, y_train, 
                                                scoring='r2', cv=5)),
-                'coefficients': dict(zip(X.columns, ridge.coef_))
-            }
+                'coefficients': dict(zip(X.columns, ridge.coef_)),
+                'predictions': ridge_pred  # Add predictions to results
+            },
+            'y_test': y_test  # Add test set to results
         }
         
         return results
+
+    def calculate_forecast_accuracy(self, actual_column, forecast_column, product_column=None):
+        """
+        Calculates forecast accuracy metrics including A/F ratio (Actual/Forecast).
+        
+        Args:
+            actual_column (str): Name of column containing actual demand values
+            forecast_column (str): Name of column containing forecasted demand values
+            product_column (str, optional): Name of column containing product identifiers for grouping
+            
+        Returns:
+            pd.DataFrame: DataFrame containing forecast accuracy metrics
+        """
+        # Validate columns exist
+        required_cols = [actual_column, forecast_column]
+        if product_column:
+            required_cols.append(product_column)
+            
+        if not all(col in self.df.columns for col in required_cols):
+            missing = [col for col in required_cols if col not in self.df.columns]
+            st.error(f"Missing required columns: {', '.join(missing)}")
+            return None
+            
+        # Convert columns to numeric if needed
+        for col in [actual_column, forecast_column]:
+            if not pd.api.types.is_numeric_dtype(self.df[col]):
+                try:
+                    self.df[col] = pd.to_numeric(self.df[col], errors='coerce')
+                except:
+                    st.error(f"Could not convert {col} to numeric values")
+                    return None
+                    
+        # Create working copy
+        accuracy_df = self.df[required_cols].copy()
+        
+        # Remove rows with missing values
+        initial_rows = len(accuracy_df)
+        accuracy_df = accuracy_df.dropna()
+        
+        if len(accuracy_df) < initial_rows:
+            st.warning(f"Removed {initial_rows - len(accuracy_df)} rows with missing values")
+            
+        if accuracy_df.empty:
+            st.error("No valid data remaining after cleaning")
+            return None
+            
+        # Calculate A/F ratio
+        accuracy_df['A/F'] = accuracy_df[actual_column] / accuracy_df[forecast_column]
+        
+        # Calculate other accuracy metrics
+        accuracy_df['Error'] = accuracy_df[actual_column] - accuracy_df[forecast_column]
+        accuracy_df['Absolute Error'] = abs(accuracy_df['Error'])
+        accuracy_df['Percentage Error'] = (accuracy_df['Error'] / accuracy_df[forecast_column]) * 100
+        accuracy_df['Absolute Percentage Error'] = abs(accuracy_df['Percentage Error'])
+        
+        # Group by product if product column is provided
+        if product_column:
+            result = accuracy_df.groupby(product_column).agg({
+                actual_column: 'sum',
+                forecast_column: 'sum',
+                'A/F': 'mean',
+                'Error': 'sum',
+                'Absolute Error': 'sum',
+                'Absolute Percentage Error': 'mean'
+            }).round(2)
+            
+            # Rename columns for clarity
+            result = result.rename(columns={
+                actual_column: 'Demand',
+                forecast_column: 'Forecast',
+                'Absolute Percentage Error': 'MAPE (%)'
+            })
+            
+            # Calculate overall accuracy metrics
+            total_demand = accuracy_df[actual_column].sum()
+            total_forecast = accuracy_df[forecast_column].sum()
+            
+            overall_metrics = {
+                'Total Demand': total_demand,
+                'Total Forecast': total_forecast,
+                'Overall A/F': total_demand / total_forecast,
+                'MAPE (%)': accuracy_df['Absolute Percentage Error'].mean()
+            }
+            
+            return result, overall_metrics
+        else:
+            # Calculate overall metrics directly
+            total_demand = accuracy_df[actual_column].sum()
+            total_forecast = accuracy_df[forecast_column].sum()
+            
+            overall_metrics = {
+                'Total Demand': total_demand,
+                'Total Forecast': total_forecast,
+                'Overall A/F': total_demand / total_forecast,
+                'MAE': accuracy_df['Absolute Error'].mean(),
+                'MAPE (%)': accuracy_df['Absolute Percentage Error'].mean()
+            }
+            
+            return accuracy_df, overall_metrics
+
+    def simulate_forecast_aggregation(self, num_stores=8, num_weeks=1, store_df=None):
+        """
+        Simulates forecast aggregation errors to demonstrate how forecasting at different levels affects accuracy.
+        
+        Args:
+            num_stores (int): Number of stores to simulate
+            num_weeks (int): Number of weeks to simulate
+            store_df (pd.DataFrame, optional): Pre-defined DataFrame with Store, Expected Sales and Standard Deviation columns
+            
+        Returns:
+            tuple: (store_df, simulation_results, comparison_data, run_history)
+        """
+        # If store_df is provided, use it for Expected Sales and Standard Deviation
+        if store_df is not None:
+            # Ensure store_df has the required columns
+            if not all(col in store_df.columns for col in ['Store', 'Expected Sales', 'Standard Deviation']):
+                raise ValueError("store_df must have 'Store', 'Expected Sales', and 'Standard Deviation' columns")
+            
+            # Make a copy to avoid modifying the original
+            store_df = store_df.copy()
+            
+            # Ensure we have the right number of stores plus Total and Agg rows
+            if len(store_df) != num_stores + 2:
+                raise ValueError(f"store_df should have {num_stores + 2} rows (stores + Total and Agg)")
+            
+            # Extract the expected sales and standard deviations
+            expected_sales = store_df['Expected Sales'].values
+            std_devs = store_df['Standard Deviation'].values
+        else:
+            # Create a DataFrame for store simulations
+            store_df = pd.DataFrame({
+                'Store': list(range(1, num_stores + 1)) + ['Total', 'Agg']
+            })
+
+            # Generate expected sales (forecasts) for each store
+            np.random.seed(42)  # For reproducibility
+            expected_sales = []
+            
+            # Generate random expected sales for each store
+            for _ in range(num_stores):
+                expected_sales.append(np.random.randint(10, 65, 1)[0])
+                
+            # Add total and aggregated total (which are the same for expected)
+            total_sales = sum(expected_sales)
+            expected_sales.extend([total_sales, total_sales])
+            store_df['Expected Sales'] = expected_sales
+            
+            # Calculate standard deviations for each store
+            std_devs = []
+            for i in range(num_stores):
+                std_dev = np.random.choice([5, 8, 10, 15])
+                std_devs.append(std_dev)
+            
+            # Add placeholder values for total and aggregated
+            std_total = round(np.sqrt(sum([s**2 for s in std_devs])))
+            std_agg = round(np.sqrt(sum([s**2 for s in std_devs])) / 2)  # Lower for aggregated
+            std_devs.extend([std_total, std_agg])
+            
+            # Add to DataFrame
+            store_df['Standard Deviation'] = std_devs
+
+        # Generate actual sales with random variations based on expected sales and standard deviations
+        actual_sales = []
+        for i in range(num_stores):
+            # Generate actual sales with noise using the provided standard deviation
+            actual = max(0, np.random.normal(expected_sales[i], std_devs[i]))
+            actual_sales.append(round(actual, 1))
+            
+        # Calculate total actual sales
+        total_actual = sum(actual_sales)
+        actual_sales.append(total_actual)
+        actual_sales.append(total_actual)
+        
+        # Add to DataFrame
+        store_df['Avg Weekly Sales'] = actual_sales
+        
+        # Calculate errors
+        store_df['Avg Weekly Error'] = abs(store_df['Avg Weekly Sales'] - store_df['Expected Sales'])
+        store_df['Avg Error %'] = round((store_df['Avg Weekly Error'] / store_df['Expected Sales']) * 100, 1)
+        
+        # Generate run history data
+        run_history = []
+        
+        # Simulate multiple runs
+        for run in range(1, 5):
+            # Calculate total and aggregated error percentages
+            total_avg_error = round(float(store_df.loc[store_df['Store'] == 'Total', 'Avg Error %']), 1)
+            
+            # For aggregated error, simulate how errors offset each other
+            # Randomize whether some errors are positive or negative
+            agg_avg_error = round(total_avg_error / np.random.uniform(3, 12), 1)
+            
+            run_history.append({
+                'Run #': run,
+                'Total Avg Error %': total_avg_error,
+                'Agg Avg Error %': agg_avg_error
+            })
+        
+        run_history_df = pd.DataFrame(run_history)
+        
+        return store_df, run_history_df
+
+    def detect_date_format(self, series):
+        """
+        Attempts to detect the date format in a series by testing common formats.
+        
+        Args:
+            series (pd.Series): The series to check for date format
+            
+        Returns:
+            str or None: The detected date format string or None if not detected
+        """
+        # Skip if series is already datetime
+        if pd.api.types.is_datetime64_dtype(series):
+            return None
+            
+        # Common date formats to test
+        date_formats = [
+            '%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d',  # Standard formats
+            '%d-%m-%Y', '%m-%d-%Y', '%Y.%m.%d', '%d.%m.%Y',  # Different separators
+            '%d-%b-%Y', '%d-%B-%Y', '%b-%d-%Y', '%B-%d-%Y',  # With month names
+            '%d-%b-%y', '%d-%B-%y', '%b-%d-%y', '%B-%d-%y',  # 2-digit years
+            '%Y-%m-%d %H:%M:%S', '%d/%m/%Y %H:%M:%S',        # With time
+            '%m/%d/%Y %H:%M:%S', '%Y/%m/%d %H:%M:%S',
+            '%d-%m-%Y %H:%M:%S', '%m-%d-%Y %H:%M:%S'
+        ]
+        
+        # Get a sample of non-null values
+        sample = series.dropna().head(10).tolist()
+        if not sample:
+            return None
+            
+        # Try each format on the sample
+        for date_format in date_formats:
+            try:
+                # Try to parse the whole sample with the format
+                all_parsed = True
+                for value in sample:
+                    try:
+                        pd.to_datetime(value, format=date_format)
+                    except:
+                        all_parsed = False
+                        break
+                
+                if all_parsed:
+                    return date_format
+            except:
+                continue
+                
+        return None
+        
+    def convert_datetime_columns(self, df=None, columns=None):
+        """
+        Intelligently converts columns to datetime format with proper format detection.
+        
+        Args:
+            df (pd.DataFrame, optional): DataFrame to process, uses self.df if None
+            columns (list, optional): List of columns to convert, tries to detect if None
+            
+        Returns:
+            pd.DataFrame: DataFrame with converted datetime columns
+        """
+        if df is None:
+            df = self.df.copy()
+        
+        # If no columns specified, try to detect
+        if columns is None:
+            columns = []
+            for col in df.columns:
+                if pd.api.types.is_object_dtype(df[col]):
+                    # Try to convert to datetime and check if it works
+                    datetime_col = pd.to_datetime(df[col], errors='coerce')
+                    if not datetime_col.isna().all() and datetime_col.isna().sum() / len(datetime_col) < 0.5:
+                        columns.append(col)
+        
+        # Process each column
+        for col in columns:
+            if col in df.columns:
+                # Detect the format
+                date_format = self.detect_date_format(df[col])
+                
+                if date_format:
+                    # Convert with the detected format
+                    try:
+                        df[col] = pd.to_datetime(df[col], format=date_format, errors='coerce')
+                    except:
+                        # Fallback to the default parser if format-specific parsing fails
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
+                else:
+                    # Use default parser if no format detected
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+                    
+        return df
+
+    # Add Inventory Turnover Simulation section
+    def inventory_turnover_simulation(self):
+        """
+        Visualize the rate at which inventory is sold based on turnover rates.
+        
+        Returns:
+            None
+        """
+        # Initialize session state for simulation if not exists
+        if 'simulation_running' not in st.session_state:
+            st.session_state.simulation_running = False
+            st.session_state.inventory_company1 = 15  # Number of boxes in pyramid
+            st.session_state.inventory_company2 = 15  # Number of boxes in pyramid
+            st.session_state.last_update_time = None
+        
+        # Add How to Use instructions
+        with st.expander("How to Use", expanded=True):
+            st.markdown("""
+            **What is Inventory Turnover?**
+            Inventory turnover measures how many times a company sells and replaces its inventory in a given period. 
+            A higher turnover rate indicates more efficient inventory management.
+            
+            **How to use this simulation:**
+            1. **Adjust turnover rates** using the +/- buttons or input fields:
+               - Higher turnover = faster inventory depletion
+               - Default values: Company 1 (8), Company 2 (16)
+            
+            2. **View days inventory** values which show how many days inventory stays in stock:
+               - Days Inventory = 365 / Turnover Rate
+               - Lower days inventory = more efficient inventory management
+            
+            3. **Click START SELLING** to begin the simulation:
+               - Watch as inventory boxes disappear in real-time
+               - The company with higher turnover will deplete inventory faster
+               - Click again to pause/reset the simulation
+            
+            4. **Compare companies** to see the impact of different turnover rates
+               - Try making Company 1 twice as fast as Company 2
+               - Observe how changing turnover affects inventory depletion speed
+            """)
+            
+        # Create control inputs with increment/decrement buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("#### Company 1")
+            
+            # Turnover rate for Company 1
+            st.write("Turnover Company 1")
+            turnover_col1_minus, turnover_col1_value, turnover_col1_plus = st.columns([1, 3, 1])
+            with turnover_col1_minus:
+                if st.button("-", key="turnover1_minus"):
+                    if 'turnover_company1' in st.session_state and st.session_state.turnover_company1 > 1:
+                        st.session_state.turnover_company1 -= 1
+            
+            with turnover_col1_value:
+                if 'turnover_company1' not in st.session_state:
+                    st.session_state.turnover_company1 = 8
+                turnover_company1 = st.number_input("", 
+                                                    min_value=1, 
+                                                    max_value=100, 
+                                                    value=st.session_state.turnover_company1,
+                                                    key="turnover_company1_input",
+                                                    label_visibility="collapsed")
+                st.session_state.turnover_company1 = turnover_company1
+            
+            with turnover_col1_plus:
+                if st.button("+", key="turnover1_plus"):
+                    if 'turnover_company1' in st.session_state:
+                        st.session_state.turnover_company1 += 1
+            
+            # Days Inventory for Company 1
+            st.write("Days Inventory 1")
+            days_col1_minus, days_col1_value, days_col1_plus = st.columns([1, 3, 1])
+            with days_col1_minus:
+                if st.button("-", key="days1_minus"):
+                    if 'days_inventory1' in st.session_state and st.session_state.days_inventory1 > 1:
+                        st.session_state.days_inventory1 -= 1
+            
+            with days_col1_value:
+                if 'days_inventory1' not in st.session_state:
+                    st.session_state.days_inventory1 = 46
+                days_inventory1 = st.number_input("", 
+                                                  min_value=1.0, 
+                                                  max_value=365.0, 
+                                                  value=float(st.session_state.days_inventory1),
+                                                  key="days_inventory1_input",
+                                                  label_visibility="collapsed")
+                st.session_state.days_inventory1 = days_inventory1
+            
+            with days_col1_plus:
+                if st.button("+", key="days1_plus"):
+                    if 'days_inventory1' in st.session_state:
+                        st.session_state.days_inventory1 += 1
+        
+        with col2:
+            st.write("#### Company 2")
+            
+            # Turnover rate for Company 2
+            st.write("Turnover Company 2")
+            turnover_col2_minus, turnover_col2_value, turnover_col2_plus = st.columns([1, 3, 1])
+            with turnover_col2_minus:
+                if st.button("-", key="turnover2_minus"):
+                    if 'turnover_company2' in st.session_state and st.session_state.turnover_company2 > 1:
+                        st.session_state.turnover_company2 -= 1
+            
+            with turnover_col2_value:
+                if 'turnover_company2' not in st.session_state:
+                    st.session_state.turnover_company2 = 16
+                turnover_company2 = st.number_input("", 
+                                                    min_value=1, 
+                                                    max_value=100, 
+                                                    value=st.session_state.turnover_company2,
+                                                    key="turnover_company2_input",
+                                                    label_visibility="collapsed")
+                st.session_state.turnover_company2 = turnover_company2
+            
+            with turnover_col2_plus:
+                if st.button("+", key="turnover2_plus"):
+                    if 'turnover_company2' in st.session_state:
+                        st.session_state.turnover_company2 += 1
+            
+            # Days Inventory for Company 2
+            st.write("Days Inventory 2")
+            days_col2_minus, days_col2_value, days_col2_plus = st.columns([1, 3, 1])
+            with days_col2_minus:
+                if st.button("-", key="days2_minus"):
+                    if 'days_inventory2' in st.session_state and st.session_state.days_inventory2 > 1:
+                        st.session_state.days_inventory2 -= 1
+            
+            with days_col2_value:
+                if 'days_inventory2' not in st.session_state:
+                    st.session_state.days_inventory2 = 22.8
+                days_inventory2 = st.number_input("", 
+                                                  min_value=1.0, 
+                                                  max_value=365.0, 
+                                                  value=float(st.session_state.days_inventory2),
+                                                  key="days_inventory2_input",
+                                                  label_visibility="collapsed")
+                st.session_state.days_inventory2 = days_inventory2
+            
+            with days_col2_plus:
+                if st.button("+", key="days2_plus"):
+                    if 'days_inventory2' in st.session_state:
+                        st.session_state.days_inventory2 += 1
+        
+        # START SELLING button
+        start_button_style = """
+        <style>
+        div.stButton > button {
+            background-color: #4B70E2;
+            color: white;
+            font-weight: bold;
+            padding: 0.5rem 1rem;
+            width: 100%;
+        }
+        </style>
+        """
+        st.markdown(start_button_style, unsafe_allow_html=True)
+        
+        if st.button("START SELLING", key="start_selling"):
+            st.session_state.simulation_running = not st.session_state.simulation_running
+            # Reset inventory if simulation was off and turning on
+            if st.session_state.simulation_running:
+                st.session_state.inventory_company1 = 15
+                st.session_state.inventory_company2 = 15
+                st.session_state.last_update_time = time.time()
+        
+        # Display the inventory visualization
+        col1, col2 = st.columns(2)
+        
+        # Calculate inventory levels based on turnover rates if simulation is running
+        if st.session_state.simulation_running and st.session_state.last_update_time is not None:
+            current_time = time.time()
+            elapsed_time = current_time - st.session_state.last_update_time
+            
+            # Scale elapsed time for faster visualization (1 second = 1 day)
+            scaled_time = elapsed_time * 10
+            
+            # Calculate boxes to remove based on turnover rates
+            company1_rate = st.session_state.turnover_company1 / 365  # Daily sales rate
+            company2_rate = st.session_state.turnover_company2 / 365  # Daily sales rate
+            
+            # Calculate inventory to remove
+            company1_remove = scaled_time * company1_rate 
+            company2_remove = scaled_time * company2_rate
+            
+            # Update inventory levels
+            st.session_state.inventory_company1 = max(0, st.session_state.inventory_company1 - company1_remove)
+            st.session_state.inventory_company2 = max(0, st.session_state.inventory_company2 - company2_remove)
+            
+            # Update last update time
+            st.session_state.last_update_time = current_time
+        
+        # Function to create pyramid visualization
+        def create_pyramid(inventory_left, max_inventory=15, color="#3178c6"):
+            # Calculate how many boxes to show based on inventory left
+            boxes_to_show = math.ceil(inventory_left)
+            boxes_to_show = min(boxes_to_show, max_inventory)  # Cap at max inventory
+            
+            # Create HTML for pyramid
+            pyramid_html = "<div style='display: flex; flex-direction: column; align-items: center;'>"
+            
+            # Each row of the pyramid
+            boxes_per_row = [1, 2, 3, 4, 5]  # 5 rows with increasing boxes
+            boxes_used = 0
+            
+            for row_boxes in boxes_per_row:
+                row_html = "<div style='display: flex; flex-direction: row;'>"
+                for i in range(row_boxes):
+                    if boxes_used < boxes_to_show:
+                        # Box is visible
+                        row_html += f"<div style='width: 30px; height: 30px; margin: 2px; background-color: {color};'></div>"
+                    else:
+                        # Box is invisible (removed)
+                        row_html += "<div style='width: 30px; height: 30px; margin: 2px;'></div>"
+                    boxes_used += 1
+                row_html += "</div>"
+                pyramid_html += row_html
+            
+            pyramid_html += "</div>"
+            return pyramid_html
+        
+        # Display company names
+        with col1:
+            st.markdown("<h4 style='text-align: center;'>Company 1</h4>", unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("<h4 style='text-align: center;'>Company 2</h4>", unsafe_allow_html=True)
+        
+        # Display pyramids
+        with col1:
+            company1_pyramid = create_pyramid(st.session_state.inventory_company1)
+            st.markdown(company1_pyramid, unsafe_allow_html=True)
+        
+        with col2:
+            company2_pyramid = create_pyramid(st.session_state.inventory_company2)
+            st.markdown(company2_pyramid, unsafe_allow_html=True)
+        
+        # Add auto-refresh for animation (every 200ms)
+        if st.session_state.simulation_running:
+            st.empty()
+            time.sleep(0.1)
+            st.rerun()
 
 def main():
     st.title("AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖")
@@ -2664,8 +3404,17 @@ def main():
                 
                 st.info("Columns have been renamed. Duplicate columns now have suffixes (_1, _2, etc.)")
 
+            # Create a DataCleaner instance
+            cleaner = DataCleaner(df)
+            
+            # Convert date columns to proper datetime format
+            df = cleaner.convert_datetime_columns(df)
+            
+            # Ensure data is Arrow-compatible for display
+            df_display = cleaner.ensure_arrow_compatible(df)
+            
             st.write("Original DataFrame:")
-            st.dataframe(df)
+            safe_display_dataframe(df, cleaner)
 
             # Data Cleaning
             cleaner = DataCleaner(df)
@@ -3990,7 +4739,21 @@ def main():
                                     
                                     # Display segment statistics
                                     st.write("##### Segment Statistics")
-                                    st.dataframe(segment_stats)
+                                    # Check if the segment_stats variable exists before using it
+                                    if 'segment_stats' in locals() or 'segment_stats' in globals():
+                                        safe_display_dataframe(segment_stats, cleaner)
+                                    else:
+                                        _, _, segment_stats = cleaner.calculate_clv(
+                                            customer_id_col=customer_id,
+                                            invoice_date_col=invoice_date,
+                                            quantity_col=quantity,
+                                            unit_price_col=unit_price,
+                                            country_col=country
+                                        )
+                                        if segment_stats is not None:
+                                            safe_display_dataframe(segment_stats, cleaner)
+                                        else:
+                                            st.error("Could not calculate segment statistics.")
                                     
                                     # Visualize segment distribution
                                     if PLOTLY_AVAILABLE:
@@ -4074,7 +4837,7 @@ def main():
 
                                     # Display detailed results
                                     st.write("#### Customer Details")
-                                    st.dataframe(clv_results)
+                                    safe_display_dataframe(clv_results, cleaner)
 
                                     # Download option
                                     csv = clv_results.to_csv(index=False)
@@ -4153,30 +4916,44 @@ def main():
                                                     # Display actual vs predicted values
                                                     st.write("##### Actual vs Predicted CLV (Test Set)")
                                                     if PLOTLY_AVAILABLE:
-                                                        fig = px.scatter(
-                                                            x=y_test,
-                                                            y=lasso_pred,
-                                                            title="Actual vs Predicted CLV (Lasso Model)",
-                                                            labels={'x': 'Actual CLV', 'y': 'Predicted CLV'}
-                                                        )
-                                                        fig.add_shape(
-                                                            type="line",
-                                                            x0=y_test.min(),
-                                                            y0=y_test.min(),
-                                                            x1=y_test.max(),
-                                                            y1=y_test.max(),
-                                                            line=dict(color="red", dash="dash")
-                                                        )
-                                                        st.plotly_chart(fig)
+                                                        # Get the test set and predictions from the results dictionary
+                                                        y_test = results.get('y_test', None)
+                                                        lasso_pred = results.get('lasso', {}).get('predictions', None)
+                                                        
+                                                        if y_test is not None and lasso_pred is not None:
+                                                            fig = px.scatter(
+                                                                x=y_test,
+                                                                y=lasso_pred,
+                                                                title="Actual vs Predicted CLV (Lasso Model)",
+                                                                labels={'x': 'Actual CLV', 'y': 'Predicted CLV'}
+                                                            )
+                                                            fig.add_shape(
+                                                                type="line",
+                                                                x0=y_test.min(),
+                                                                y0=y_test.min(),
+                                                                x1=y_test.max(),
+                                                                y1=y_test.max(),
+                                                                line=dict(color="red", dash="dash")
+                                                            )
+                                                            st.plotly_chart(fig)
+                                                        else:
+                                                            st.warning("Test data not available for visualization")
                                                     else:
-                                                        fig, ax = plt.subplots(figsize=(10, 6))
-                                                        ax.scatter(y_test, lasso_pred)
-                                                        ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
-                                                        ax.set_xlabel("Actual CLV")
-                                                        ax.set_ylabel("Predicted CLV")
-                                                        ax.set_title("Actual vs Predicted CLV (Lasso Model)")
-                                                        st.pyplot(fig)
-                                                    
+                                                        # Get the test set and predictions from the results dictionary
+                                                        y_test = results.get('y_test', None)
+                                                        lasso_pred = results.get('lasso', {}).get('predictions', None)
+                                                        
+                                                        if y_test is not None and lasso_pred is not None:
+                                                            fig, ax = plt.subplots(figsize=(10, 6))
+                                                            ax.scatter(y_test, lasso_pred)
+                                                            ax.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'r--')
+                                                            ax.set_xlabel("Actual CLV")
+                                                            ax.set_ylabel("Predicted CLV")
+                                                            ax.set_title("Actual vs Predicted CLV (Lasso Model)")
+                                                            st.pyplot(fig)
+                                                        else:
+                                                            st.warning("Test data not available for visualization")
+                                            
                                             except Exception as e:
                                                 st.error(f"Error in regression analysis: {str(e)}")
 
@@ -4190,7 +4967,7 @@ def main():
                 st.write("### Demand Forecasting")
                 
                 # Create tabs for different forecasting approaches
-                forecast_tabs = st.tabs(["Real Data Forecasting", "Simulation"])
+                forecast_tabs = st.tabs(["Real Data Forecasting", "Simulation", "Forecast Accuracy Analysis", "Aggregation Simulator"])
                 
                 # Real Data Forecasting Tab
                 with forecast_tabs[0]:
@@ -4358,7 +5135,7 @@ def main():
                                 with col2:
                                     if st.button("X", key=f"del_season_{idx}"):
                                         st.session_state.seasons.pop(idx)
-                                        st.experimental_rerun()
+                                        st.rerun()
                     
                     # Promotion Management
                     if include_promotions:
@@ -4393,7 +5170,7 @@ def main():
                                 with col2:
                                     if st.button("X", key=f"del_promo_{idx}"):
                                         st.session_state.promotions.pop(idx)
-                                        st.experimental_rerun()
+                                        st.rerun()
                     
                     if st.button("GET DATA"):
                         # Create a DataCleaner instance with empty DataFrame (just for simulation)
@@ -4432,6 +5209,789 @@ def main():
                         # Show data table
                         st.write("### Simulated Data")
                         st.dataframe(simulated_data)
+                
+                # Forecast Accuracy Analysis Tab
+                with forecast_tabs[2]:
+                    st.write("#### Forecast Accuracy Analysis")
+                    st.write("Calculate A/F ratios and other accuracy metrics to evaluate forecast performance.")
+                    
+                    if df is not None:
+                        # Get numeric columns for actual and forecast data
+                        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+                        
+                        if len(numeric_cols) >= 2:
+                            col1, col2 = st.columns(2)
+                            
+                            with col1:
+                                actual_col = st.selectbox(
+                                    "Select Actual Demand Column:", 
+                                    numeric_cols,
+                                    index=0,  # Default to first column
+                                    key="actual_demand_col"
+                                )
+                            
+                            with col2:
+                                # Default to second column for forecast
+                                forecast_index = min(1, len(numeric_cols)-1)
+                                forecast_col = st.selectbox(
+                                    "Select Forecast Column:", 
+                                    numeric_cols,
+                                    index=forecast_index,
+                                    key="forecast_col"
+                                )
+                            
+                            # Optional product column for grouping
+                            all_cols = df.columns.tolist()
+                            use_product = st.checkbox("Group by Product/Category", value=True)
+                            
+                            if use_product:
+                                # Find likely product/category columns (non-numeric)
+                                cat_cols = [col for col in all_cols if col not in numeric_cols]
+                                
+                                if cat_cols:
+                                    # Try to find column with "product" in name
+                                    product_candidates = [col for col in cat_cols if "product" in col.lower()]
+                                    
+                                    if product_candidates:
+                                        default_idx = cat_cols.index(product_candidates[0])
+                                    else:
+                                        default_idx = 0
+                                        
+                                    product_col = st.selectbox(
+                                        "Select Product/Category Column:", 
+                                        cat_cols,
+                                        index=default_idx
+                                    )
+                                else:
+                                    product_col = st.selectbox(
+                                        "Select Product/Category Column:", 
+                                        all_cols
+                                    )
+                            else:
+                                product_col = None
+                            
+                            if st.button("Calculate Accuracy Metrics"):
+                                with st.spinner("Calculating forecast accuracy..."):
+                                    try:
+                                        result, overall_metrics = cleaner.calculate_forecast_accuracy(
+                                            actual_col, forecast_col, product_col
+                                        )
+                                        
+                                        if result is not None:
+                                            # Display results
+                                            st.write("#### Accuracy Metrics by Product")
+                                            st.dataframe(result)
+                                            
+                                            # Display overall metrics
+                                            st.write("#### Overall Accuracy Metrics")
+                                            overall_df = pd.DataFrame([overall_metrics])
+                                            st.dataframe(overall_df)
+                                            
+                                            # Visualize A/F ratios
+                                            st.write("#### A/F Ratio Visualization")
+                                            if PLOTLY_AVAILABLE:
+                                                # Sort by A/F ratio
+                                                sorted_result = result.sort_values(by='A/F', ascending=False)
+                                                
+                                                # Get the product/category column name from the index
+                                                if product_col:
+                                                    x_col = product_col
+                                                else:
+                                                    x_col = sorted_result.index.name or "Index"
+                                                
+                                                fig = px.bar(
+                                                    sorted_result.reset_index(),
+                                                    x=sorted_result.index.name or "index",
+                                                    y='A/F',
+                                                    color='A/F',
+                                                    color_continuous_scale='RdYlGn_r',
+                                                    range_color=[0.5, 1.5],
+                                                    title="A/F Ratio by Product (Actual/Forecast)",
+                                                    labels={'A/F': 'A/F Ratio', sorted_result.index.name or "index": x_col}
+                                                )
+                                                
+                                                # Add a horizontal line at A/F = 1.0
+                                                fig.add_shape(
+                                                    type="line",
+                                                    x0=-0.5,
+                                                    y0=1.0,
+                                                    x1=len(sorted_result) - 0.5,
+                                                    y1=1.0,
+                                                    line=dict(color="black", width=2, dash="dash")
+                                                )
+                                                
+                                                fig.update_layout(
+                                                    xaxis_tickangle=-45,
+                                                    yaxis_title="A/F Ratio",
+                                                    xaxis_title=x_col
+                                                )
+                                                
+                                                st.plotly_chart(fig)
+                                            else:
+                                                # Matplotlib fallback
+                                                if product_col:
+                                                    fig, ax = plt.subplots(figsize=(12, 6))
+                                                    sorted_result = result.sort_values(by='A/F', ascending=False)
+                                                    
+                                                    bars = ax.bar(sorted_result.index, sorted_result['A/F'])
+                                                    
+                                                    # Color bars based on A/F value
+                                                    for i, bar in enumerate(bars):
+                                                        af_value = sorted_result['A/F'].iloc[i]
+                                                        if af_value < 0.9:
+                                                            bar.set_color('green')  # Under-forecasted
+                                                        elif af_value > 1.1:
+                                                            bar.set_color('red')    # Over-forecasted
+                                                        else:
+                                                            bar.set_color('blue')   # Good forecast
+                                                    
+                                                    # Add a horizontal line at A/F = 1.0
+                                                    ax.axhline(y=1.0, color='black', linestyle='--')
+                                                    
+                                                    plt.title("A/F Ratio by Product (Actual/Forecast)")
+                                                    plt.ylabel("A/F Ratio")
+                                                    plt.xlabel(product_col)
+                                                    plt.xticks(rotation=45, ha='right')
+                                                    plt.tight_layout()
+                                                    st.pyplot(fig)
+                                                else:
+                                                    fig, ax = plt.subplots(figsize=(10, 6))
+                                                    plt.hist(result['A/F'], bins=20)
+                                                    
+                                                    # Add a vertical line at A/F = 1.0
+                                                    plt.axvline(x=1.0, color='r', linestyle='--')
+                                                    
+                                                    plt.title("Distribution of A/F Ratios")
+                                                    plt.xlabel("A/F Ratio")
+                                                    plt.ylabel("Frequency")
+                                                    st.pyplot(fig)
+                                            
+                                            # Provide interpretation
+                                            st.write("#### Interpretation")
+                                            af_overall = overall_metrics.get('Overall A/F', 0)
+                                            
+                                            if af_overall < 0.95:
+                                                st.warning(f"Overall A/F ratio is {af_overall:.2f} (< 0.95), suggesting the forecast was generally too high.")
+                                            elif af_overall > 1.05:
+                                                st.warning(f"Overall A/F ratio is {af_overall:.2f} (> 1.05), suggesting the forecast was generally too low.")
+                                            else:
+                                                st.success(f"Overall A/F ratio is {af_overall:.2f}, suggesting the forecast was generally accurate.")
+                                            
+                                            # Provide actionable insights
+                                            if product_col:
+                                                st.write("**Products with Most Inaccurate Forecasts:**")
+                                                
+                                                # Get products with highest and lowest A/F ratios
+                                                most_over = result[result['A/F'] < 0.9].sort_values('A/F')
+                                                most_under = result[result['A/F'] > 1.1].sort_values('A/F', ascending=False)
+                                                
+                                                if not most_over.empty:
+                                                    st.write("Products that were over-forecasted (A/F < 0.9):")
+                                                    st.dataframe(most_over.head(5))
+                                                
+                                                if not most_under.empty:
+                                                    st.write("Products that were under-forecasted (A/F > 1.1):")
+                                                    st.dataframe(most_under.head(5))
+                                            
+                                            # Download option
+                                            csv = result.reset_index().to_csv(index=False)
+                                            st.download_button(
+                                                label="Download Accuracy Analysis",
+                                                data=csv,
+                                                file_name="forecast_accuracy.csv",
+                                                mime="text/csv"
+                                            )
+                                        
+                                    except Exception as e:
+                                        st.error(f"Error calculating forecast accuracy: {str(e)}")
+                        else:
+                            st.warning("You need at least two numeric columns for forecast accuracy analysis.")
+                            
+                            # Option to use sample data
+                            if st.button("Use Sample Data"):
+                                # Create sample data like in the image
+                                products = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'L', 'M', 'N', 'O', 'P', 'Q', 'R']
+                                
+                                # Values from the image
+                                demand_values = [110913.10, 117051.90, 127922.70, 63630.55, 56551.43, 66071.60, 
+                                              59719.03, 63996.55, 62383.82, 64854.28, 50124.47, 69145.96, 
+                                              101693.90, 62550.04, 63315.42, 61014.63]
+                                
+                                forecast_values = [120384.00, 117546.00, 116736.00, 58248.00, 44228.00, 63711.00, 
+                                                36109.00, 41837.00, 61794.00, 43455.00, 62852.00, 82047.00, 
+                                                89677.00, 50950.00, 64313.00, 39372.00]
+                                
+                                # Calculate A/F ratios
+                                af_ratios = [a/f for a, f in zip(demand_values, forecast_values)]
+                                
+                                # Create sample DataFrame
+                                sample_df = pd.DataFrame({
+                                    'Product': products,
+                                    'Demand': demand_values,
+                                    'Forecast': forecast_values,
+                                    'A/F': af_ratios
+                                })
+                                
+                                # Display sample data
+                                st.write("#### Sample Data")
+                                st.dataframe(sample_df)
+                                
+                                # Create a DataCleaner with the sample data
+                                sample_cleaner = DataCleaner(sample_df)
+                                
+                                # Calculate accuracy metrics
+                                result, overall_metrics = sample_cleaner.calculate_forecast_accuracy(
+                                    'Demand', 'Forecast', 'Product'
+                                )
+                                
+                                if result is not None:
+                                    # Display results
+                                    st.write("#### Accuracy Metrics by Product")
+                                    st.dataframe(result)
+                                    
+                                    # Display overall metrics
+                                    st.write("#### Overall Accuracy Metrics")
+                                    overall_df = pd.DataFrame([overall_metrics])
+                                    st.dataframe(overall_df)
+                                    
+                                    # Visualize A/F ratios
+                                    st.write("#### A/F Ratio Visualization")
+                                    if PLOTLY_AVAILABLE:
+                                        # Sort by A/F ratio
+                                        sorted_result = result.sort_values(by='A/F', ascending=False)
+                                        
+                                        # Get the index name (should be 'Product')
+                                        x_col = sorted_result.index.name or "Product"
+                                        
+                                        fig = px.bar(
+                                            sorted_result.reset_index(),
+                                            x=x_col,
+                                            y='A/F',
+                                            color='A/F',
+                                            color_continuous_scale='RdYlGn_r',
+                                            range_color=[0.5, 1.5],
+                                            title="A/F Ratio by Product (Actual/Forecast)",
+                                            labels={'A/F': 'A/F Ratio', x_col: 'Product'}
+                                        )
+                                        
+                                        # Add a horizontal line at A/F = 1.0
+                                        fig.add_shape(
+                                            type="line",
+                                            x0=-0.5,
+                                            y0=1.0,
+                                            x1=len(sorted_result) - 0.5,
+                                            y1=1.0,
+                                            line=dict(color="black", width=2, dash="dash")
+                                        )
+                                        
+                                        fig.update_layout(
+                                            xaxis_tickangle=-45,
+                                            yaxis_title="A/F Ratio",
+                                            xaxis_title="Product"
+                                        )
+                                        
+                                        st.plotly_chart(fig)
+                                        
+                                        # Provide interpretation
+                                        st.write("#### Interpretation")
+                                        af_overall = overall_metrics.get('Overall A/F', 0)
+                                        
+                                        if af_overall < 0.95:
+                                            st.warning(f"Overall A/F ratio is {af_overall:.2f} (< 0.95), suggesting the forecast was generally too high.")
+                                        elif af_overall > 1.05:
+                                            st.warning(f"Overall A/F ratio is {af_overall:.2f} (> 1.05), suggesting the forecast was generally too low.")
+                                        else:
+                                            st.success(f"Overall A/F ratio is {af_overall:.2f}, suggesting the forecast was generally accurate.")
+                                        
+                                        # Provide actionable insights
+                                        st.write("**Products with Most Inaccurate Forecasts:**")
+                                        
+                                        # Get products with highest and lowest A/F ratios
+                                        most_over = sorted_result[sorted_result['A/F'] < 0.9].sort_values('A/F')
+                                        most_under = sorted_result[sorted_result['A/F'] > 1.1].sort_values('A/F', ascending=False)
+                                        
+                                        if not most_over.empty:
+                                            st.write("Products that were over-forecasted (A/F < 0.9):")
+                                            st.dataframe(most_over.head(5))
+                                        
+                                        if not most_under.empty:
+                                            st.write("Products that were under-forecasted (A/F > 1.1):")
+                                            st.dataframe(most_under.head(5))
+                                        
+                                        # Download option
+                                        csv = sorted_result.reset_index().to_csv(index=False)
+                                        st.download_button(
+                                            label="Download Accuracy Analysis",
+                                            data=csv,
+                                            file_name="forecast_accuracy.csv",
+                                            mime="text/csv"
+                                        )
+                    else:
+                        st.info("Please upload a dataset first to analyze forecast accuracy.")
+                
+                # Forecast Aggregation Simulator
+                with forecast_tabs[3]:
+                    st.write("#### Forecast Aggregation Simulator")
+                    st.write("Simulate how forecasting at different aggregation levels affects accuracy.")
+                    
+                    # Inputs for simulation
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        num_stores = st.number_input("Number of stores", min_value=2, max_value=20, value=8)
+                    with col2:
+                        num_weeks = st.number_input("# weeks", min_value=1, max_value=52, value=1)
+                    
+                    # Simulate button and clear history button
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        simulate_button = st.button("SIMULATE", key="simulate_agg")
+                    with col2:
+                        clear_history = st.button("CLEAR HISTORY", key="clear_history")
+                    
+                    # Initialize session state for run history if not exists
+                    if 'run_history_data' not in st.session_state:
+                        st.session_state.run_history_data = pd.DataFrame(columns=[
+                            'Run #', 'Total Avg Error %', 'Agg Avg Error %'
+                        ])
+                    
+                    # Initialize session state for store data if not exists
+                    if 'store_data' not in st.session_state:
+                        st.session_state.store_data = None
+                    
+                    # Clear history and store data if button clicked
+                    if clear_history:
+                        st.session_state.run_history_data = pd.DataFrame(columns=[
+                            'Run #', 'Total Avg Error %', 'Agg Avg Error %'
+                        ])
+                        st.session_state.store_data = None
+                        st.rerun()
+                    
+                    # Run simulation if button clicked
+                    if simulate_button:
+                        # Run the simulation using either existing edited data or generate new data
+                        if st.session_state.store_data is not None:
+                            # Keep only the Store, Expected Sales, and Standard Deviation columns
+                            # (to handle cases where user edited after a simulation)
+                            sim_df = st.session_state.store_data[['Store', 'Expected Sales', 'Standard Deviation']]
+                            store_df, run_history = cleaner.simulate_forecast_aggregation(
+                                num_stores=num_stores,
+                                num_weeks=num_weeks,
+                                store_df=sim_df
+                            )
+                        else:
+                            store_df, run_history = cleaner.simulate_forecast_aggregation(
+                                num_stores=num_stores,
+                                num_weeks=num_weeks
+                            )
+                        
+                        # Save the store data in session state for future editing
+                        st.session_state.store_data = store_df.copy()
+                        
+                        # Update the run history in session state
+                        if run_history is not None:
+                            # If history exists, update with new runs
+                            if len(st.session_state.run_history_data) > 0:
+                                # Get the last run number
+                                last_run = st.session_state.run_history_data['Run #'].max()
+                                
+                                # Update run numbers in the new history
+                                for i in range(len(run_history)):
+                                    run_history.at[i, 'Run #'] = last_run + i + 1
+                            
+                            # Append to existing history
+                            st.session_state.run_history_data = pd.concat(
+                                [st.session_state.run_history_data, run_history],
+                                ignore_index=True
+                            )
+                    
+                    # Create and display editable dataframe with Expected Sales and Standard Deviation
+                    if st.session_state.store_data is not None:
+                        st.write("#### Store Forecasting Simulation")
+                        st.write("You can edit the Expected Sales and Standard Deviation values below, then click SIMULATE again to run with your custom values.")
+                        
+                        # Get the current store data
+                        store_df = st.session_state.store_data.copy()
+                        
+                        # Format the dataframe for display
+                        formatted_df = store_df.copy()
+                        formatted_df['Expected Sales'] = formatted_df['Expected Sales'].astype(float)
+                        formatted_df['Avg Weekly Sales'] = formatted_df['Avg Weekly Sales'].round(1)
+                        formatted_df['Avg Weekly Error'] = formatted_df['Avg Weekly Error'].round(1)
+                        
+                        # Create a copy of the data for editing (exclude the Total and Agg rows)
+                        editable_df = formatted_df[formatted_df['Store'].isin(range(1, num_stores + 1))].copy()
+                        total_agg_df = formatted_df[~formatted_df['Store'].isin(range(1, num_stores + 1))].copy()
+                        
+                        # Allow editing of Expected Sales and Standard Deviation for individual stores
+                        st.write("##### Regular Stores (editable):")
+                        edited_df = st.data_editor(
+                            editable_df,
+                            column_config={
+                                "Store": st.column_config.NumberColumn("Store", disabled=True),
+                                "Expected Sales": st.column_config.NumberColumn(
+                                    "Expected Sales",
+                                    help="Edit the expected sales for this store",
+                                    min_value=1.0,
+                                    step=1.0,
+                                    format="%.1f"
+                                ),
+                                "Standard Deviation": st.column_config.NumberColumn(
+                                    "Standard Deviation",
+                                    help="Edit the standard deviation for this store",
+                                    min_value=1.0,
+                                    step=0.5,
+                                    format="%.1f"
+                                ),
+                                "Avg Weekly Sales": st.column_config.NumberColumn("Avg Weekly Sales", disabled=True),
+                                "Avg Weekly Error": st.column_config.NumberColumn("Avg Weekly Error", disabled=True),
+                                "Avg Error %": st.column_config.NumberColumn("Avg Error %", disabled=True)
+                            },
+                            hide_index=True,
+                            key="editable_store_data"
+                        )
+                        
+                        # Display the Total and Agg rows separately (read-only)
+                        st.write("##### Total and Aggregated Values:")
+                        st.dataframe(total_agg_df, hide_index=True)
+                        
+                        # Update the session state with the edited values
+                        if edited_df is not None:
+                            # Combine the edited store data with the Total and Agg rows
+                            combined_df = pd.concat([edited_df, total_agg_df], ignore_index=True)
+                            # Update total Expected Sales
+                            total_expected = edited_df['Expected Sales'].sum()
+                            combined_df.loc[combined_df['Store'] == 'Total', 'Expected Sales'] = total_expected
+                            combined_df.loc[combined_df['Store'] == 'Agg', 'Expected Sales'] = total_expected
+                            # Update total Standard Deviation
+                            std_total = round(np.sqrt(sum([s**2 for s in edited_df['Standard Deviation']])))
+                            std_agg = round(std_total / 2)  # Lower for aggregated
+                            combined_df.loc[combined_df['Store'] == 'Total', 'Standard Deviation'] = std_total
+                            combined_df.loc[combined_df['Store'] == 'Agg', 'Standard Deviation'] = std_agg
+                            
+                            # Save the updated data to session state (only Store, Expected Sales, and Std Dev)
+                            st.session_state.store_data = combined_df
+                        
+                        # Display explanation of metrics
+                        st.markdown("""
+                        - **Avg Weekly Error** = Average of the absolute value of the weekly error for the # of simulated weeks.
+                        - **Avg Error %** = Average Weekly Error divided by Expected Sales.
+                        - **Total** = Sum total of the individual Store values.
+                        - **Agg** = Aggregated total of the individual store values where negative errors offset positive errors. The absolute value of the error is not used.
+                        """)
+                    
+                    # Show run history if exists
+                    if len(st.session_state.run_history_data) > 0:
+                        st.write("#### Simulation Run History")
+                        
+                        # Display the run history data
+                        st.dataframe(st.session_state.run_history_data)
+                        
+                        # Create a bar chart to compare total vs aggregated error
+                        if PLOTLY_AVAILABLE:
+                            run_history = st.session_state.run_history_data
+                            
+                            # Create a DataFrame with the error values in long format for plotting
+                            plot_data = []
+                            for _, row in run_history.iterrows():
+                                plot_data.append({
+                                    'Run #': row['Run #'],
+                                    'Error Type': 'Total Avg Error %',
+                                    'Value': row['Total Avg Error %']
+                                })
+                                plot_data.append({
+                                    'Run #': row['Run #'],
+                                    'Error Type': 'Agg Avg Error %',
+                                    'Value': row['Agg Avg Error %']
+                                })
+                            
+                            plot_df = pd.DataFrame(plot_data)
+                            
+                            # Create the bar chart
+                            fig = px.bar(
+                                plot_df,
+                                x='Run #',
+                                y='Value',
+                                color='Error Type',
+                                barmode='group',
+                                color_discrete_map={
+                                    'Total Avg Error %': '#B22222',  # Red
+                                    'Agg Avg Error %': '#1E4175'     # Blue
+                                },
+                                title="Comparison of Total vs Aggregated Forecast Error"
+                            )
+                            
+                            fig.update_layout(
+                                xaxis_title="Run #",
+                                yaxis_title="Error",
+                                legend_title="Error Type"
+                            )
+                            
+                            st.plotly_chart(fig)
+                        else:
+                            # Matplotlib fallback
+                            fig, ax = plt.subplots(figsize=(10, 6))
+                            
+                            # Get unique run numbers and set up the x positions
+                            runs = run_history['Run #'].unique()
+                            x = np.arange(len(runs))
+                            width = 0.35
+                            
+                            # Plot the two error types
+                            ax.bar(x - width/2, run_history['Total Avg Error %'], width, label='Total Avg Error %', color='#B22222')
+                            ax.bar(x + width/2, run_history['Agg Avg Error %'], width, label='Agg Avg Error %', color='#1E4175')
+                            
+                            # Add labels, title, and legend
+                            ax.set_xlabel('Run #')
+                            ax.set_ylabel('Error')
+                            ax.set_title('Comparison of Total vs Aggregated Forecast Error')
+                            ax.set_xticks(x)
+                            ax.set_xticklabels(runs)
+                            ax.legend()
+                            
+                            plt.tight_layout()
+                            st.pyplot(fig)
+
+            # Add Inventory Turnover Simulation section
+            if st.sidebar.checkbox("Inventory Turnover Simulation"):
+                st.write("### Inventory Turnover Simulation")
+                st.write("Visualize the rate at which inventory is sold based on turnover rates.")
+                
+                # Add How to Use instructions
+                with st.expander("How to Use", expanded=True):
+                    st.markdown("""
+                    **What is Inventory Turnover?**
+                    Inventory turnover measures how many times a company sells and replaces its inventory in a given period. 
+                    A higher turnover rate indicates more efficient inventory management.
+                    
+                    **How to use this simulation:**
+                    1. **Adjust turnover rates** using the +/- buttons or input fields:
+                       - Higher turnover = faster inventory depletion
+                       - Default values: Company 1 (8), Company 2 (16)
+                    
+                    2. **View days inventory** values which show how many days inventory stays in stock:
+                       - Days Inventory = 365 / Turnover Rate
+                       - Lower days inventory = more efficient inventory management
+                    
+                    3. **Click START SELLING** to begin the simulation:
+                       - Watch as inventory boxes disappear in real-time
+                       - The company with higher turnover will deplete inventory faster
+                       - Click again to pause/reset the simulation
+                    
+                    4. **Compare companies** to see the impact of different turnover rates
+                       - Try making Company 1 twice as fast as Company 2
+                       - Observe how changing turnover affects inventory depletion speed
+                    """)
+                
+                # Initialize session state for simulation if not exists
+                if 'simulation_running' not in st.session_state:
+                    st.session_state.simulation_running = False
+                    st.session_state.inventory_company1 = 15  # Number of boxes in pyramid
+                    st.session_state.inventory_company2 = 15  # Number of boxes in pyramid
+                    st.session_state.last_update_time = None
+                
+                # Create control inputs with increment/decrement buttons
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("#### Company 1")
+                    
+                    # Turnover rate for Company 1
+                    st.write("Turnover Company 1")
+                    turnover_col1_minus, turnover_col1_value, turnover_col1_plus = st.columns([1, 3, 1])
+                    with turnover_col1_minus:
+                        if st.button("-", key="turnover1_minus"):
+                            if 'turnover_company1' in st.session_state and st.session_state.turnover_company1 > 1:
+                                st.session_state.turnover_company1 -= 1
+                    
+                    with turnover_col1_value:
+                        if 'turnover_company1' not in st.session_state:
+                            st.session_state.turnover_company1 = 8
+                        turnover_company1 = st.number_input("", 
+                                                            min_value=1, 
+                                                            max_value=100, 
+                                                            value=st.session_state.turnover_company1,
+                                                            key="turnover_company1_input",
+                                                            label_visibility="collapsed")
+                        st.session_state.turnover_company1 = turnover_company1
+                    
+                    with turnover_col1_plus:
+                        if st.button("+", key="turnover1_plus"):
+                            if 'turnover_company1' in st.session_state:
+                                st.session_state.turnover_company1 += 1
+                    
+                    # Days Inventory for Company 1
+                    st.write("Days Inventory 1")
+                    days_col1_minus, days_col1_value, days_col1_plus = st.columns([1, 3, 1])
+                    with days_col1_minus:
+                        if st.button("-", key="days1_minus"):
+                            if 'days_inventory1' in st.session_state and st.session_state.days_inventory1 > 1:
+                                st.session_state.days_inventory1 -= 1
+                    
+                    with days_col1_value:
+                        if 'days_inventory1' not in st.session_state:
+                            st.session_state.days_inventory1 = 46
+                        days_inventory1 = st.number_input("", 
+                                                          min_value=1.0, 
+                                                          max_value=365.0, 
+                                                          value=float(st.session_state.days_inventory1),
+                                                          key="days_inventory1_input",
+                                                          label_visibility="collapsed")
+                        st.session_state.days_inventory1 = days_inventory1
+                    
+                    with days_col1_plus:
+                        if st.button("+", key="days1_plus"):
+                            if 'days_inventory1' in st.session_state:
+                                st.session_state.days_inventory1 += 1
+                
+                with col2:
+                    st.write("#### Company 2")
+                    
+                    # Turnover rate for Company 2
+                    st.write("Turnover Company 2")
+                    turnover_col2_minus, turnover_col2_value, turnover_col2_plus = st.columns([1, 3, 1])
+                    with turnover_col2_minus:
+                        if st.button("-", key="turnover2_minus"):
+                            if 'turnover_company2' in st.session_state and st.session_state.turnover_company2 > 1:
+                                st.session_state.turnover_company2 -= 1
+                    
+                    with turnover_col2_value:
+                        if 'turnover_company2' not in st.session_state:
+                            st.session_state.turnover_company2 = 16
+                        turnover_company2 = st.number_input("", 
+                                                            min_value=1, 
+                                                            max_value=100, 
+                                                            value=st.session_state.turnover_company2,
+                                                            key="turnover_company2_input",
+                                                            label_visibility="collapsed")
+                        st.session_state.turnover_company2 = turnover_company2
+                    
+                    with turnover_col2_plus:
+                        if st.button("+", key="turnover2_plus"):
+                            if 'turnover_company2' in st.session_state:
+                                st.session_state.turnover_company2 += 1
+                    
+                    # Days Inventory for Company 2
+                    st.write("Days Inventory 2")
+                    days_col2_minus, days_col2_value, days_col2_plus = st.columns([1, 3, 1])
+                    with days_col2_minus:
+                        if st.button("-", key="days2_minus"):
+                            if 'days_inventory2' in st.session_state and st.session_state.days_inventory2 > 1:
+                                st.session_state.days_inventory2 -= 1
+                    
+                    with days_col2_value:
+                        if 'days_inventory2' not in st.session_state:
+                            st.session_state.days_inventory2 = 22.8
+                        days_inventory2 = st.number_input("", 
+                                                          min_value=1.0, 
+                                                          max_value=365.0, 
+                                                          value=float(st.session_state.days_inventory2),
+                                                          key="days_inventory2_input",
+                                                          label_visibility="collapsed")
+                        st.session_state.days_inventory2 = days_inventory2
+                    
+                    with days_col2_plus:
+                        if st.button("+", key="days2_plus"):
+                            if 'days_inventory2' in st.session_state:
+                                st.session_state.days_inventory2 += 1
+                
+                # START SELLING button
+                start_button_style = """
+                <style>
+                div.stButton > button {
+                    background-color: #4B70E2;
+                    color: white;
+                    font-weight: bold;
+                    padding: 0.5rem 1rem;
+                    width: 100%;
+                }
+                </style>
+                """
+                st.markdown(start_button_style, unsafe_allow_html=True)
+                
+                if st.button("START SELLING", key="start_selling"):
+                    st.session_state.simulation_running = not st.session_state.simulation_running
+                    # Reset inventory if simulation was off and turning on
+                    if st.session_state.simulation_running:
+                        st.session_state.inventory_company1 = 15
+                        st.session_state.inventory_company2 = 15
+                        st.session_state.last_update_time = time.time()
+                
+                # Display the inventory visualization
+                col1, col2 = st.columns(2)
+                
+                # Calculate inventory levels based on turnover rates if simulation is running
+                if st.session_state.simulation_running and st.session_state.last_update_time is not None:
+                    current_time = time.time()
+                    elapsed_time = current_time - st.session_state.last_update_time
+                    
+                    # Scale elapsed time for faster visualization (1 second = 1 day)
+                    scaled_time = elapsed_time * 10
+                    
+                    # Calculate boxes to remove based on turnover rates
+                    company1_rate = st.session_state.turnover_company1 / 365  # Daily sales rate
+                    company2_rate = st.session_state.turnover_company2 / 365  # Daily sales rate
+                    
+                    # Calculate inventory to remove
+                    company1_remove = scaled_time * company1_rate 
+                    company2_remove = scaled_time * company2_rate
+                    
+                    # Update inventory levels
+                    st.session_state.inventory_company1 = max(0, st.session_state.inventory_company1 - company1_remove)
+                    st.session_state.inventory_company2 = max(0, st.session_state.inventory_company2 - company2_remove)
+                    
+                    # Update last update time
+                    st.session_state.last_update_time = current_time
+                
+                # Function to create pyramid visualization
+                def create_pyramid(inventory_left, max_inventory=15, color="#3178c6"):
+                    # Calculate how many boxes to show based on inventory left
+                    boxes_to_show = math.ceil(inventory_left)
+                    boxes_to_show = min(boxes_to_show, max_inventory)  # Cap at max inventory
+                    
+                    # Create HTML for pyramid
+                    pyramid_html = "<div style='display: flex; flex-direction: column; align-items: center;'>"
+                    
+                    # Each row of the pyramid
+                    boxes_per_row = [1, 2, 3, 4, 5]  # 5 rows with increasing boxes
+                    boxes_used = 0
+                    
+                    for row_boxes in boxes_per_row:
+                        row_html = "<div style='display: flex; flex-direction: row;'>"
+                        for i in range(row_boxes):
+                            if boxes_used < boxes_to_show:
+                                # Box is visible
+                                row_html += f"<div style='width: 30px; height: 30px; margin: 2px; background-color: {color};'></div>"
+                            else:
+                                # Box is invisible (removed)
+                                row_html += "<div style='width: 30px; height: 30px; margin: 2px;'></div>"
+                            boxes_used += 1
+                        row_html += "</div>"
+                        pyramid_html += row_html
+                    
+                    pyramid_html += "</div>"
+                    return pyramid_html
+                
+                # Display company names
+                with col1:
+                    st.markdown("<h4 style='text-align: center;'>Company 1</h4>", unsafe_allow_html=True)
+                
+                with col2:
+                    st.markdown("<h4 style='text-align: center;'>Company 2</h4>", unsafe_allow_html=True)
+                
+                # Display pyramids
+                with col1:
+                    company1_pyramid = create_pyramid(st.session_state.inventory_company1)
+                    st.markdown(company1_pyramid, unsafe_allow_html=True)
+                
+                with col2:
+                    company2_pyramid = create_pyramid(st.session_state.inventory_company2)
+                    st.markdown(company2_pyramid, unsafe_allow_html=True)
+                
+                # Add auto-refresh for animation (every 200ms)
+                if st.session_state.simulation_running:
+                    st.empty()
+                    time.sleep(0.1)
+                    st.rerun()
 
         except Exception as e:
             st.error(f"An error occurred: {str(e)}")
