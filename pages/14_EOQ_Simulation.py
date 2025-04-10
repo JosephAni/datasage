@@ -11,6 +11,16 @@ st.set_page_config(
     layout="wide"
 )
 
+# Initialize session state
+if 'params' not in st.session_state:
+    st.session_state.params = {
+        'annual_demand': 400,
+        'order_cost': 500.0,
+        'unit_cost': 200.0,
+        'holding_rate': 0.20,
+        'custom_order': None  # Will be initialized in update_params
+    }
+
 # Add custom CSS
 st.markdown("""
 <style>
@@ -67,8 +77,36 @@ def calculate_costs(order_size, annual_demand, order_cost, unit_cost, holding_ra
             'total_cost': 0
         }
 
+def update_params():
+    """Update all parameters in session state"""
+    # Calculate EOQ
+    optimal_order = calculate_eoq(
+        st.session_state.params['annual_demand'],
+        st.session_state.params['order_cost'],
+        st.session_state.params['unit_cost'],
+        st.session_state.params['holding_rate']
+    )
+    
+    # Initialize custom order if not set
+    if st.session_state.params['custom_order'] is None:
+        st.session_state.params['custom_order'] = int(optimal_order)
+
+def handle_param_change(param_name):
+    """Callback for parameter changes"""
+    def callback():
+        if param_name == 'holding_rate':
+            # Convert percentage to decimal
+            st.session_state.params[param_name] = st.session_state[f"input_{param_name}"] / 100
+        else:
+            st.session_state.params[param_name] = st.session_state[f"input_{param_name}"]
+        update_params()
+    return callback
+
 def main():
     st.title("EOQ Simulation 📊")
+    
+    # Ensure custom_order is initialized
+    update_params()
     
     st.markdown("""
     <div class='simulation-card'>
@@ -117,35 +155,44 @@ def main():
     with col1:
         st.subheader("Parameters")
         
+        # Input fields with callbacks
         annual_demand = st.number_input(
             "Annual Demand (units)",
             min_value=1,
-            value=400,
+            value=st.session_state.params['annual_demand'],
             step=1,
+            key="input_annual_demand",
+            on_change=handle_param_change('annual_demand'),
             help="Total number of units demanded per year"
         )
         
         order_cost = st.number_input(
             "Cost per Order ($)",
             min_value=0.0,
-            value=500.0,
+            value=st.session_state.params['order_cost'],
             step=10.0,
+            key="input_order_cost",
+            on_change=handle_param_change('order_cost'),
             help="Fixed cost of placing an order"
         )
         
         unit_cost = st.number_input(
             "Unit Cost ($)",
             min_value=0.0,
-            value=200.0,
+            value=st.session_state.params['unit_cost'],
             step=1.0,
+            key="input_unit_cost",
+            on_change=handle_param_change('unit_cost'),
             help="Cost per unit of inventory"
         )
         
         holding_rate = st.number_input(
             "Cost of Capital (%)",
             min_value=0.0,
-            value=20.0,
+            value=st.session_state.params['holding_rate'] * 100,
             step=0.1,
+            key="input_holding_rate",
+            on_change=handle_param_change('holding_rate'),
             help="Annual holding cost as a percentage of unit cost"
         ) / 100  # Convert percentage to decimal
         
@@ -224,22 +271,16 @@ def main():
         # Create a comparison table
         st.subheader("Cost Comparison")
         
-        # Initialize custom order with optimal order
-        if 'custom_order' not in st.session_state:
-            st.session_state.custom_order = int(optimal_order)
-        
         # Create comparison table with interactive input
         custom_order = st.number_input(
             "Custom Order Size",
             min_value=1,
-            value=st.session_state.custom_order,
+            value=int(st.session_state.params['custom_order']),  # Ensure it's an integer
             step=1,
-            key="custom_order_input",
+            key="input_custom_order",
+            on_change=handle_param_change('custom_order'),
             label_visibility="visible"
         )
-        
-        # Update session state
-        st.session_state.custom_order = custom_order
         
         # Calculate costs for custom order
         custom_costs = calculate_costs(custom_order, annual_demand, order_cost, unit_cost, holding_rate)
@@ -247,7 +288,7 @@ def main():
         # Create comparison table
         comparison_data = {
             'Order Size': ['Optimal Order', 'Custom Order'],
-            'Size': [f"{optimal_order:.0f}", custom_order],
+            'Size': [f"{optimal_order:.0f}", f"{custom_order}"],  # Ensure both are formatted as strings
             'Order Costs': [f"${optimal_costs['order_cost']:,.2f}", f"${custom_costs['order_cost']:,.2f}"],
             'Holding Costs': [f"${optimal_costs['holding_cost']:,.2f}", f"${custom_costs['holding_cost']:,.2f}"],
             'Total Costs': [f"${optimal_costs['total_cost']:,.2f}", f"${custom_costs['total_cost']:,.2f}"]
@@ -266,8 +307,8 @@ def main():
         # Create sawtooth wave for optimal order
         sawtooth_optimal = optimal_order * (0.5 - (time % 1))
         
-        # Create sawtooth wave for custom order
-        sawtooth_custom = custom_order * (0.5 - (time % 1))
+        # Create sawtooth wave for custom order (now safe since custom_order is initialized)
+        sawtooth_custom = float(custom_order) * (0.5 - (time % 1))  # Convert to float for calculation
         
         # Create the sawtooth plot
         fig2 = go.Figure()
@@ -279,7 +320,7 @@ def main():
             line=dict(color='#1f77b4')
         ))
         
-        if custom_order != optimal_order:
+        if int(custom_order) != int(optimal_order):  # Compare as integers
             fig2.add_trace(go.Scatter(
                 x=time,
                 y=sawtooth_custom,
