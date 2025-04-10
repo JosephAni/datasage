@@ -1,6 +1,6 @@
 # AI-Powered Data Cleaning Platform 🖨️💎🛁📊🤖
 
-A powerful, user-friendly data cleaning and analysis platform built with Python, Streamlit, and various machine learning libraries. This tool provides an interactive web interface for data preprocessing, analysis, visualization, and advanced machine learning tasks.
+A powerful, user-friendly data cleaning and analysis platform built with Python, Flask, and various machine learning libraries. This tool provides an interactive web interface for data preprocessing, analysis, visualization, and advanced machine learning tasks.
 
 ## Features
 
@@ -45,7 +45,7 @@ A powerful, user-friendly data cleaning and analysis platform built with Python,
 
 ### 5. Data Visualization 📊
 
-- **Interactive Plots**: Using Plotly for dynamic visualizations
+- **Interactive Plots**: Using Plotly and Chart.js for dynamic visualizations
 - **Distribution Analysis**:
   - Histograms for numeric columns
   - Bar charts, treemaps, and lollipop charts for categorical data
@@ -53,6 +53,13 @@ A powerful, user-friendly data cleaning and analysis platform built with Python,
 - **Time Series Visualization**: Seasonal patterns and trends
 - **Correlation Analysis**: Interactive heatmaps
 - **Business Metrics Visualization**: CLV, RFM segments, inventory levels
+
+## Backend Frameworks
+
+This project has two backend options:
+
+1. **Original Streamlit Backend**: The `main` branch uses Streamlit for a simple, quick deployment
+2. **Flask Backend**: The `new-frontend` branch provides a more customizable Flask-based interface
 
 ## Installation
 
@@ -63,14 +70,14 @@ git clone <repository-url>
 cd data-cleaner
 ```
 
-1. Create a virtual environment and activate it:
+2. Create a virtual environment and activate it:
 
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-1. Install the required packages:
+3. Install the required packages:
 
 ```bash
 pip install -r requirements.txt
@@ -78,6 +85,26 @@ pip install -r requirements.txt
 
 ## Requirements
 
+For the Flask backend (`new-frontend` branch):
+- Python 3.8+
+- flask==2.3.3
+- pandas==2.2.0
+- numpy==1.26.3
+- scikit-learn==1.4.0
+- matplotlib==3.8.2
+- seaborn==0.13.2
+- scipy==1.12.0
+- category_encoders==2.6.3
+- statsmodels==0.14.1
+- prophet==1.1.5
+- plotly==5.18.0
+- pmdarima==2.0.4
+- flask-wtf==1.2.1
+- jinja2==3.1.2
+- werkzeug==2.3.7
+- gunicorn==21.2.0
+
+For the Streamlit backend (`main` branch):
 - Python 3.8+
 - streamlit==1.31.1
 - pandas==2.2.0
@@ -94,33 +121,39 @@ pip install -r requirements.txt
 
 ## Usage
 
+### Flask Backend (new-frontend branch)
+
 1. Start the application:
 
 ```bash
-streamlit run data_cleaner.py
+python app.py
 ```
 
-1. Open your web browser and navigate to the provided URL (typically `http://localhost:8501`)
+2. Open your web browser and navigate to `http://127.0.0.1:5000`
 
-1. Upload your dataset (CSV or Excel file)
+### Streamlit Backend (main branch)
 
-1. Use the sidebar to access different features:
-   - Basic Cleaning
-   - AI/ML Features
-   - Time Series Analysis
-   - Business Analytics
-   - Data Visualization
+1. Start the application:
 
-1. Download the cleaned dataset when finished
+```bash
+streamlit run Home.py
+```
+
+2. Open your web browser and navigate to the provided URL (typically `http://localhost:8501`)
+
+3. For both backends:
+   - Upload your dataset (CSV, Excel, or JSON file)
+   - Use the navigation to access different features
+   - Download the cleaned dataset when finished
 
 ## Data Cleaning Workflow
 
-1. **Upload Data**: Support for CSV and Excel files
-1. **Explore**: Use automated EDA to understand your dataset
-1. **Clean**: Apply advanced cleaning operations as needed
-1. **Analyze**: Utilize visualization tools to explore patterns
-1. **Process**: Apply AI/ML features for advanced preprocessing
-1. **Export**: Download the cleaned dataset
+1. **Upload Data**: Support for CSV, Excel, and JSON files
+2. **Explore**: Use automated EDA to understand your dataset
+3. **Clean**: Apply advanced cleaning operations as needed
+4. **Analyze**: Utilize visualization tools to explore patterns
+5. **Process**: Apply AI/ML features for advanced preprocessing
+6. **Export**: Download the cleaned dataset
 
 ## Features in Detail
 
@@ -184,9 +217,10 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Acknowledgments
 
-- Built with Streamlit
+- Flask backend with Bootstrap UI
+- Original version built with Streamlit
 - Powered by scikit-learn and Prophet
-- Visualization using Plotly, matplotlib, and seaborn
+- Visualization using Plotly, Chart.js, matplotlib, and seaborn
 
 ## Support
 

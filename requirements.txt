@@ -1,4 +1,4 @@
-streamlit==1.31.1
+flask==2.3.3
 pandas==2.2.0
 numpy==1.26.3
 scikit-learn==1.4.0
@@ -9,4 +9,8 @@ category_encoders==2.6.3
 statsmodels==0.14.1
 prophet==1.1.5
 plotly==5.18.0
-pmdarima==2.0.4 
+pmdarima==2.0.4
+flask-wtf==1.2.1
+jinja2==3.1.2
+werkzeug==2.3.7
+gunicorn==21.2.0 

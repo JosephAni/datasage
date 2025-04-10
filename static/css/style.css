@@ -1,0 +1,142 @@
+/* Main Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f8f9fa;
+}
+
+/* Header Styles */
+.main-header {
+    font-size: 2.5rem;
+    color: #4B70E2;
+    margin-bottom: 1rem;
+}
+
+.sub-header {
+    font-size: 1.5rem;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Card Styles */
+.info-box {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.feature-card {
+    background-color: #f0f2f6;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    margin-bottom: 1rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.feature-card h3 {
+    color: #2C3E50;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
+}
+
+.feature-card p {
+    color: #34495E;
+    font-size: 0.95rem;
+}
+
+.simulation-card {
+    background-color: #2C3E50;
+    color: white;
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 20px;
+}
+
+/* Colored Sections */
+.bg-primary-custom {
+    background-color: #4B70E2;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.bg-dark-custom {
+    background-color: #2C3E50;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.bg-accent-custom {
+    background-color: #4F46E5;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 10px 0 30px 0;
+}
+
+/* Button Styles */
+.btn-primary-custom {
+    background-color: #4B70E2;
+    color: white;
+    font-weight: bold;
+    padding: 0.5rem 2rem;
+    border: none;
+    border-radius: 0.25rem;
+}
+
+.btn-primary-custom:hover {
+    background-color: #3a5bbf;
+}
+
+/* Form Styles */
+.form-container {
+    background-color: white;
+    padding: 20px;
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* Table Styles */
+.table-container {
+    overflow-x: auto;
+    margin-bottom: 20px;
+}
+
+/* Other Utility Classes */
+.mt-lg {
+    margin-top: 2rem;
+}
+
+.mb-lg {
+    margin-bottom: 2rem;
+}
+
+/* Dark Mode Toggle */
+.dark-mode {
+    background-color: #222;
+    color: #eee;
+}
+
+.dark-mode .navbar {
+    background-color: #333 !important;
+}
+
+.dark-mode .card {
+    background-color: #333;
+    color: #eee;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .main-header {
+        font-size: 2rem;
+    }
+    
+    .sub-header {
+        font-size: 1.25rem;
+    }
+} 
