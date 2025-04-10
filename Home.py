@@ -216,6 +216,9 @@ def main():
         - [Advanced Data Cleaning](/10_Advanced_Data_Cleaning)
         - [Advanced Data Analysis](/11_Advanced_Data_Analysis)
         - [Demand Forecasting](/12_Demand_Forecasting)
+        - [Cost of Inventory](/13_Cost_of_Inventory)
+        - [EOQ Simulation](/14_EOQ_Simulation)
+        - [Newsvendor Simulator](/15_Newsvendor_Simulator)
         """)
     
     # Data loading logic
@@ -261,59 +264,111 @@ def main():
     # Display available features with descriptions
     st.markdown("<h2 class='sub-header'>Available Features</h2>", unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns(3)
+    # First row
+    row1_col1, row1_col2, row1_col3 = st.columns(3)
     
-    with col1:
+    with row1_col1:
         st.markdown("""
         <div class='feature-card'>
         <h3>Data Cleaning</h3>
         <p>Clean and preprocess your data with tools for handling missing values, outliers, and data transformations.</p>
         </div>
-        
+        """, unsafe_allow_html=True)
+    
+    with row1_col2:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>Customer Lifetime Value</h3>
+        <p>Calculate and analyze customer lifetime value to understand customer behavior and identify valuable segments.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with row1_col3:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>Cost of Inventory</h3>
+        <p>Calculate and analyze inventory costs including holding costs, turnover metrics, and optimization recommendations based on industry benchmarks.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Second row
+    row2_col1, row2_col2, row2_col3 = st.columns(3)
+    
+    with row2_col1:
+        st.markdown("""
         <div class='feature-card'>
         <h3>Data Visualization</h3>
         <p>Create insightful visualizations to understand your data better with interactive charts and plots.</p>
         </div>
-        
+        """, unsafe_allow_html=True)
+    
+    with row2_col2:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>Inventory Turnover Simulation</h3>
+        <p>Visualize inventory turnover rates and compare different scenarios to improve inventory management.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with row2_col3:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>Advanced Data Cleaning</h3>
+        <p>Advanced techniques for data cleaning, including handling skewness, high cardinality, and advanced imputation.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Third row
+    row3_col1, row3_col2, row3_col3 = st.columns(3)
+    
+    with row3_col1:
+        st.markdown("""
         <div class='feature-card'>
         <h3>Time Series Analysis</h3>
         <p>Analyze and forecast time series data with advanced statistical models and machine learning techniques.</p>
         </div>
         """, unsafe_allow_html=True)
     
-    with col2:
+    with row3_col2:
         st.markdown("""
-        <div class='feature-card'>
-        <h3>Customer Lifetime Value</h3>
-        <p>Calculate and analyze customer lifetime value to understand customer behavior and identify valuable segments.</p>
-        </div>
-        
-        <div class='feature-card'>
-        <h3>Inventory Turnover Simulation</h3>
-        <p>Visualize inventory turnover rates and compare different scenarios to improve inventory management.</p>
-        </div>
-        
         <div class='feature-card'>
         <h3>Feature Engineering</h3>
         <p>Create new features, transform variables, and prepare your data for machine learning models.</p>
         </div>
         """, unsafe_allow_html=True)
     
-    with col3:
+    with row3_col3:
         st.markdown("""
-        <div class='feature-card'>
-        <h3>Advanced Data Cleaning</h3>
-        <p>Advanced techniques for data cleaning, including handling skewness, high cardinality, and advanced imputation.</p>
-        </div>
-        
         <div class='feature-card'>
         <h3>Data Interpretation</h3>
         <p>Extract insights and understand the meaning of your data with statistical analysis and hypothesis testing.</p>
         </div>
-        
+        """, unsafe_allow_html=True)
+    
+    # Fourth row for the last two cards
+    row4_col1, row4_col2, row4_col3 = st.columns(3)
+    
+    with row4_col1:
+        st.markdown("""
         <div class='feature-card'>
-        <h3>Demand Forecasting</h3>
-        <p>Predict future demand based on historical data using various forecasting algorithms and evaluate accuracy.</p>
+        <h3>Demand Forecasting 📈</h3>
+        <p>Advanced demand forecasting tools using time series analysis and machine learning techniques.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with row4_col2:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>EOQ Simulation 📊</h3>
+        <p>Interactive Economic Order Quantity simulator to optimize inventory ordering decisions. Visualize cost trade-offs between order costs and holding costs to find the optimal order quantity that minimizes total inventory costs.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with row4_col3:
+        st.markdown("""
+        <div class='feature-card'>
+        <h3>Newsvendor Simulator📰</h3>
+        <p>Optimize single-period inventory decisions under uncertainty. Find the best order quantity balancing overstocking and understocking costs using Normal or Uniform demand distributions.</p>
         </div>
         """, unsafe_allow_html=True)
     
@@ -323,13 +378,15 @@ def main():
         safe_display_dataframe(df)
         
         # Basic data info
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             st.metric("Rows", df.shape[0])
         with col2:
             st.metric("Columns", df.shape[1])
         with col3:
             st.metric("Missing Values", df.isna().sum().sum())
+        with col4:
+            st.metric("Duplicates", df.duplicated().sum())
         
         # Data types summary
         st.markdown("<h3>Data Types</h3>", unsafe_allow_html=True)
