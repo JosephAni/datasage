@@ -237,7 +237,7 @@ function loadDataPreview() {
     previewError.style.display = 'none';
     
     // Fetch data preview from API
-    fetch('/api/data/preview')
+    fetch('/api/data_preview')
         .then(response => {
             if (!response.ok) {
                 throw new Error('Failed to load data preview');
@@ -251,7 +251,7 @@ function loadDataPreview() {
             
             // Update dataset info
             document.getElementById('filename').textContent = data.filename || 'Unknown';
-            document.getElementById('row-count').textContent = data.data.length;
+            document.getElementById('row-count').textContent = data.row_count || 0;
             document.getElementById('column-count').textContent = data.columns.length;
             
             // Populate column headers
@@ -268,7 +268,7 @@ function loadDataPreview() {
             // Populate data rows (limit to first 10 rows)
             const tbody = document.getElementById('preview-tbody');
             tbody.innerHTML = '';
-            data.data.slice(0, 10).forEach(row => {
+            data.preview.forEach(row => {
                 const tr = document.createElement('tr');
                 data.columns.forEach(column => {
                     const td = document.createElement('td');
@@ -303,133 +303,173 @@ function generateDataSummary(data) {
     summaryError.style.display = 'none';
     
     try {
-        // Column types summary
-        const columnTypes = {};
-        data.columns.forEach(column => {
-            // Determine column type based on first non-null value
-            const nonNullValue = data.data.find(row => row[column] !== null)?.[column];
-            if (nonNullValue === undefined) {
-                columnTypes[column] = 'unknown';
-            } else if (!isNaN(nonNullValue) && typeof nonNullValue !== 'boolean') {
-                columnTypes[column] = 'numeric';
-            } else if (typeof nonNullValue === 'string' && 
-                      (nonNullValue.match(/^\d{4}-\d{2}-\d{2}/) || 
-                       nonNullValue.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}/))) {
-                columnTypes[column] = 'datetime';
-            } else {
-                columnTypes[column] = 'categorical';
-            }
-        });
+        // Use the data types provided by the API if available
+        const columnTypes = data.dtypes || {};
+        
+        // If dtypes not provided, infer from preview data
+        if (!data.dtypes) {
+            data.columns.forEach(column => {
+                // Determine column type based on first non-null value
+                const nonNullValue = data.preview.find(row => row[column] !== null)?.[column];
+                if (nonNullValue === undefined) {
+                    columnTypes[column] = 'unknown';
+                } else if (!isNaN(nonNullValue) && typeof nonNullValue !== 'boolean') {
+                    columnTypes[column] = 'numeric';
+                } else if (typeof nonNullValue === 'string' && 
+                          (nonNullValue.match(/^\d{4}-\d{2}-\d{2}/) || 
+                           nonNullValue.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}/))) {
+                    columnTypes[column] = 'datetime';
+                } else {
+                    columnTypes[column] = 'categorical';
+                }
+            });
+        }
+        
+        // Count types based on dtype strings
+        const numericCount = Object.values(columnTypes).filter(t => 
+            t.includes('int') || t.includes('float') || t.includes('number')).length;
+        const datetimeCount = Object.values(columnTypes).filter(t => 
+            t.includes('date') || t.includes('time')).length;
+        const categoricalCount = Object.values(columnTypes).filter(t => 
+            t.includes('object') || t.includes('category') || t.includes('bool')).length;
         
         // Display column summary
         const columnSummary = document.getElementById('column-summary');
         columnSummary.innerHTML = `
             <p>Total Columns: ${data.columns.length}</p>
-            <p>Numeric Columns: ${Object.values(columnTypes).filter(t => t === 'numeric').length}</p>
-            <p>Categorical Columns: ${Object.values(columnTypes).filter(t => t === 'categorical').length}</p>
-            <p>Datetime Columns: ${Object.values(columnTypes).filter(t => t === 'datetime').length}</p>
+            <p>Numeric Columns: ${numericCount}</p>
+            <p>Categorical Columns: ${categoricalCount}</p>
+            <p>Datetime Columns: ${datetimeCount}</p>
         `;
         
-        // Calculate missing values
-        const missingValues = {};
-        data.columns.forEach(column => {
-            const nullCount = data.data.filter(row => row[column] === null).length;
-            missingValues[column] = {
-                count: nullCount,
-                percentage: (nullCount / data.data.length) * 100
-            };
-        });
+        // Use missing values data if provided in API response
+        // Otherwise, calculate from preview data (less accurate)
+        let missingValues = {};
+        
+        if (data.missing_values) {
+            missingValues = data.missing_values;
+        } else {
+            data.columns.forEach(column => {
+                const nullCount = data.preview.filter(row => row[column] === null).length;
+                missingValues[column] = {
+                    count: nullCount,
+                    percentage: (nullCount / data.preview.length) * 100
+                };
+            });
+        }
         
         // Display missing values summary
         const missingSummary = document.getElementById('missing-summary');
         missingSummary.innerHTML = '';
-        const totalMissingCount = Object.values(missingValues).reduce((sum, val) => sum + val.count, 0);
-        const missingColumns = Object.keys(missingValues).filter(col => missingValues[col].count > 0);
         
-        missingSummary.innerHTML = `
-            <p>Total Missing Values: ${totalMissingCount}</p>
-            <p>Columns with Missing Values: ${missingColumns.length}</p>
-        `;
-        
-        if (missingColumns.length > 0) {
-            const missingList = document.createElement('ul');
-            missingColumns.sort((a, b) => missingValues[b].count - missingValues[a].count)
-                .slice(0, 5)  // Show top 5 columns with most missing values
-                .forEach(column => {
-                    const li = document.createElement('li');
-                    li.textContent = `${column}: ${missingValues[column].count} (${missingValues[column].percentage.toFixed(2)}%)`;
-                    missingList.appendChild(li);
-                });
-            missingSummary.appendChild(missingList);
+        // If we have column_stats
+        if (data.columns_stats) {
+            const totalMissingCount = Object.values(data.columns_stats)
+                .reduce((sum, col) => sum + (col.missing || 0), 0);
+                
+            const missingColumns = Object.keys(data.columns_stats)
+                .filter(col => data.columns_stats[col].missing > 0);
+            
+            missingSummary.innerHTML = `
+                <p>Total Missing Values: ${totalMissingCount}</p>
+                <p>Columns with Missing Values: ${missingColumns.length}</p>
+            `;
+            
+            if (missingColumns.length > 0) {
+                const missingList = document.createElement('ul');
+                missingColumns.sort((a, b) => data.columns_stats[b].missing - data.columns_stats[a].missing)
+                    .slice(0, 5)  // Show top 5 columns with most missing values
+                    .forEach(column => {
+                        const stats = data.columns_stats[column];
+                        const percent = ((stats.missing / data.row_count) * 100).toFixed(2);
+                        const li = document.createElement('li');
+                        li.textContent = `${column}: ${stats.missing} (${percent}%)`;
+                        missingList.appendChild(li);
+                    });
+                missingSummary.appendChild(missingList);
+            }
+        } else {
+            // Fallback if detailed stats not available
+            missingSummary.innerHTML = `
+                <p>Missing values information not available in preview.</p>
+                <p>Please apply data cleaning to generate full statistics.</p>
+            `;
         }
         
         // Display numeric columns summary
         const numericSummary = document.getElementById('numeric-summary');
         numericSummary.innerHTML = '';
         
-        const numericColumns = Object.keys(columnTypes).filter(col => columnTypes[col] === 'numeric');
-        numericColumns.forEach(column => {
-            const values = data.data.map(row => parseFloat(row[column])).filter(val => !isNaN(val));
-            if (values.length === 0) return;
+        // Use the column stats if available from API
+        if (data.columns_stats) {
+            // Find numeric columns from data types
+            const numericColumns = Object.keys(columnTypes).filter(col => 
+                columnTypes[col].includes('int') || 
+                columnTypes[col].includes('float') || 
+                columnTypes[col].includes('number'));
+                
+            numericColumns.forEach(column => {
+                if (!data.columns_stats[column]) return;
+                
+                const stats = data.columns_stats[column];
+                if (!('mean' in stats)) return; // Skip if not numeric stats
+                
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${column}</td>
+                    <td>${stats.mean !== null ? stats.mean.toFixed(2) : 'N/A'}</td>
+                    <td>${stats.median !== null ? stats.median.toFixed(2) : 'N/A'}</td>
+                    <td>${stats.min !== null ? stats.min.toFixed(2) : 'N/A'}</td>
+                    <td>${stats.max !== null ? stats.max.toFixed(2) : 'N/A'}</td>
+                    <td>${stats.std !== null ? stats.std.toFixed(2) : 'N/A'}</td>
+                `;
+                numericSummary.appendChild(tr);
+            });
             
-            const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
-            const sortedValues = [...values].sort((a, b) => a - b);
-            const median = sortedValues.length % 2 === 0 
-                ? (sortedValues[sortedValues.length/2 - 1] + sortedValues[sortedValues.length/2]) / 2
-                : sortedValues[Math.floor(sortedValues.length/2)];
-            const min = Math.min(...values);
-            const max = Math.max(...values);
-            const stdDev = Math.sqrt(values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length);
-            
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td>${column}</td>
-                <td>${mean.toFixed(2)}</td>
-                <td>${median.toFixed(2)}</td>
-                <td>${min.toFixed(2)}</td>
-                <td>${max.toFixed(2)}</td>
-                <td>${stdDev.toFixed(2)}</td>
-            `;
-            numericSummary.appendChild(tr);
-        });
-        
-        if (numericColumns.length === 0) {
-            numericSummary.innerHTML = '<tr><td colspan="6">No numeric columns found</td></tr>';
+            if (numericColumns.length === 0) {
+                numericSummary.innerHTML = '<tr><td colspan="6">No numeric columns found</td></tr>';
+            }
+        } else {
+            // Simplified fallback using preview data
+            const numericColumns = Object.keys(columnTypes).filter(col => 
+                columnTypes[col].includes('int') || 
+                columnTypes[col].includes('float') || 
+                columnTypes[col].includes('number'));
+                
+            if (numericColumns.length === 0) {
+                numericSummary.innerHTML = '<tr><td colspan="6">No numeric columns found in preview</td></tr>';
+            } else {
+                numericSummary.innerHTML = '<tr><td colspan="6">Full numeric statistics will be available after data cleaning</td></tr>';
+            }
         }
         
-        // Display categorical columns summary
+        // Display categorical columns summary - simplified for preview
         const categoricalSummary = document.getElementById('categorical-summary');
         categoricalSummary.innerHTML = '';
         
-        const categoricalColumns = Object.keys(columnTypes).filter(col => columnTypes[col] === 'categorical');
+        // Find categorical columns from data types
+        const categoricalColumns = Object.keys(columnTypes).filter(col => 
+            columnTypes[col].includes('object') || 
+            columnTypes[col].includes('category') || 
+            columnTypes[col].includes('bool'));
+            
         if (categoricalColumns.length > 0) {
-            categoricalColumns.slice(0, 3).forEach(column => {  // Show only first 3 categorical columns
-                const valueCount = {};
-                data.data.forEach(row => {
-                    const value = row[column] === null ? 'NULL' : row[column];
-                    valueCount[value] = (valueCount[value] || 0) + 1;
+            if (data.columns_stats) {
+                categoricalColumns.slice(0, 3).forEach(column => {  // Show only first 3 categorical columns
+                    const stats = data.columns_stats[column];
+                    if (!stats) return;
+                    
+                    const div = document.createElement('div');
+                    div.className = 'mb-3';
+                    div.innerHTML = `<h6>${column} (${stats.unique_values || '?'} unique values)</h6>`;
+                    
+                    // If we had top value frequencies, we could show them here
+                    
+                    categoricalSummary.appendChild(div);
                 });
-                
-                const uniqueValues = Object.keys(valueCount).length;
-                
-                const div = document.createElement('div');
-                div.className = 'mb-3';
-                div.innerHTML = `<h6>${column} (${uniqueValues} unique values)</h6>`;
-                
-                const topValues = Object.entries(valueCount)
-                    .sort((a, b) => b[1] - a[1])
-                    .slice(0, 5);  // Show top 5 values
-                
-                const ul = document.createElement('ul');
-                topValues.forEach(([value, count]) => {
-                    const li = document.createElement('li');
-                    li.textContent = `${value}: ${count} (${((count / data.data.length) * 100).toFixed(2)}%)`;
-                    ul.appendChild(li);
-                });
-                div.appendChild(ul);
-                
-                categoricalSummary.appendChild(div);
-            });
+            } else {
+                categoricalSummary.innerHTML = '<p>Categorical column details will be available after data cleaning</p>';
+            }
         } else {
             categoricalSummary.innerHTML = '<p>No categorical columns found</p>';
         }
@@ -470,13 +510,13 @@ function applyCleaningActions() {
     `;
     cleaningResult.style.display = 'none';
     
-    // Send cleaning request to server
-    fetch('/api/data/clean', {
+    // Make API request to clean data
+    fetch('/api/clean_data', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
         },
-        body: JSON.stringify(cleaningActions)
+        body: JSON.stringify(cleaningActions),
     })
     .then(response => {
         if (!response.ok) {
@@ -521,7 +561,7 @@ function applyCleaningActions() {
 }
 
 function downloadCleanedData(format) {
-    const url = `/api/data/download?format=${format}`;
+    const url = `/api/download_data?format=${format}`;
     window.location.href = url;
 }
 </script>

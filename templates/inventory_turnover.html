@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+
+{% block title %}Inventory Turnover{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+{% endblock %}
+
+{% block content %}
+<h1 class="main-header">Inventory Turnover Simulation 📦</h1>
+
+<div class="bg-primary-custom">
+    <h3>About Inventory Turnover</h3>
+    <p>Inventory turnover is a ratio showing how many times a company has sold and replaced inventory during a given period. A high turnover implies strong sales and/or efficient inventory management.</p>
+</div>
+
+<div class="row">
+    <!-- Configuration Panel -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Simulation Parameters</h4>
+            </div>
+            <div class="card-body">
+                <form id="inventory-form">
+                    <div class="mb-3">
+                        <label for="initial_inventory" class="form-label">Initial Inventory</label>
+                        <input type="number" class="form-control" id="initial_inventory" name="initial_inventory" min="100" value="1000">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="daily_demand_mean" class="form-label">Average Daily Demand</label>
+                        <input type="number" class="form-control" id="daily_demand_mean" name="daily_demand_mean" min="1" value="50">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="daily_demand_stddev" class="form-label">Demand Std Deviation</label>
+                        <input type="number" class="form-control" id="daily_demand_stddev" name="daily_demand_stddev" min="0" value="10">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="reorder_point" class="form-label">Reorder Point</label>
+                        <input type="number" class="form-control" id="reorder_point" name="reorder_point" min="0" value="300">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="order_quantity" class="form-label">Order Quantity</label>
+                        <input type="number" class="form-control" id="order_quantity" name="order_quantity" min="1" value="500">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="lead_time" class="form-label">Lead Time (days)</label>
+                        <input type="number" class="form-control" id="lead_time" name="lead_time" min="1" value="3">
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="simulation_days" class="form-label">Simulation Period (days)</label>
+                        <input type="number" class="form-control" id="simulation_days" name="simulation_days" min="30" max="365" value="90">
+                    </div>
+                    
+                    <button type="button" id="run-simulation" class="btn btn-primary w-100">Run Simulation</button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0">Simulation Results</h4>
+            </div>
+            <div class="card-body">
+                <div id="results-loading" class="text-center" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Running simulation...</p>
+                </div>
+                <div id="results-content">
+                    <p>Configure parameters and click "Run Simulation" to see results.</p>
+                    <div id="summary-stats" style="display: none;">
+                        <h5>Key Metrics</h5>
+                        <table class="table table-sm">
+                            <tbody>
+                                <tr>
+                                    <th>Inventory Turnover Ratio:</th>
+                                    <td id="turnover-ratio">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Average Days Inventory:</th>
+                                    <td id="days-inventory">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Service Level:</th>
+                                    <td id="service-level">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Stockout Events:</th>
+                                    <td id="stockout-events">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Total Orders Placed:</th>
+                                    <td id="total-orders">-</td>
+                                </tr>
+                                <tr>
+                                    <th>Average Inventory Level:</th>
+                                    <td id="avg-inventory">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Visualization Area -->
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h4 class="mb-0">Inventory Level Over Time</h4>
+            </div>
+            <div class="card-body">
+                <canvas id="inventory-chart" height="300"></canvas>
+            </div>
+        </div>
+        
+        <div class="card mb-4">
+            <div class="card-header bg-warning text-dark">
+                <h4 class="mb-0">Daily Demand vs. Fulfilled Demand</h4>
+            </div>
+            <div class="card-body">
+                <canvas id="demand-chart" height="300"></canvas>
+            </div>
+        </div>
+        
+        <div class="card mb-4">
+            <div class="card-header bg-dark text-white">
+                <h4 class="mb-0">Inventory Turnover Explanation</h4>
+            </div>
+            <div class="card-body">
+                <h5>What is Inventory Turnover?</h5>
+                <p>Inventory turnover is a ratio that measures how efficiently a company manages its inventory. It's calculated as:</p>
+                <div class="bg-light p-2 mb-3">
+                    <p class="mb-0 text-center"><strong>Inventory Turnover = Cost of Goods Sold / Average Inventory</strong></p>
+                </div>
+                
+                <h5>Interpreting the Ratio</h5>
+                <ul>
+                    <li><strong>High Ratio:</strong> Efficient inventory management, strong sales, but possibly stockouts</li>
+                    <li><strong>Low Ratio:</strong> Excess inventory, poor sales, or obsolete items</li>
+                </ul>
+                
+                <h5>Days Inventory Outstanding (DIO)</h5>
+                <p>Another useful metric is the average number of days inventory is held:</p>
+                <div class="bg-light p-2 mb-3">
+                    <p class="mb-0 text-center"><strong>DIO = 365 / Inventory Turnover</strong></p>
+                </div>
+                
+                <h5>Optimizing Inventory Management</h5>
+                <p>Finding the right balance involves trade-offs between:</p>
+                <ul>
+                    <li>Service level (avoiding stockouts)</li>
+                    <li>Inventory carrying costs</li>
+                    <li>Order costs</li>
+                </ul>
+                <p>Adjust the parameters in the simulation to find the optimal inventory strategy for your business scenario.</p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let inventoryChart = null;
+let demandChart = null;
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize empty charts
+    initCharts();
+    
+    // Connect form buttons
+    document.getElementById('run-simulation').addEventListener('click', runSimulation);
+});
+
+function initCharts() {
+    // Initialize Inventory Chart
+    const invCtx = document.getElementById('inventory-chart').getContext('2d');
+    inventoryChart = new Chart(invCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Inventory Level',
+                    data: [],
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderWidth: 2,
+                    fill: true
+                },
+                {
+                    label: 'Reorder Point',
+                    data: [],
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    borderWidth: 2,
+                    borderDash: [5, 5],
+                    fill: false,
+                    pointRadius: 0
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Day'
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Units'
+                    }
+                }
+            }
+        }
+    });
+    
+    // Initialize Demand Chart
+    const demandCtx = document.getElementById('demand-chart').getContext('2d');
+    demandChart = new Chart(demandCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Daily Demand',
+                    data: [],
+                    borderColor: 'rgba(255, 159, 64, 1)',
+                    backgroundColor: 'rgba(255, 159, 64, 0.2)',
+                    borderWidth: 2,
+                    fill: true
+                },
+                {
+                    label: 'Fulfilled Demand',
+                    data: [],
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                    borderWidth: 2,
+                    fill: true
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: 'Day'
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Units'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function runSimulation() {
+    // Get form values
+    const initialInventory = parseInt(document.getElementById('initial_inventory').value);
+    const dailyDemandMean = parseInt(document.getElementById('daily_demand_mean').value);
+    const dailyDemandStdDev = parseInt(document.getElementById('daily_demand_stddev').value);
+    const reorderPoint = parseInt(document.getElementById('reorder_point').value);
+    const orderQuantity = parseInt(document.getElementById('order_quantity').value);
+    const leadTime = parseInt(document.getElementById('lead_time').value);
+    const simulationDays = parseInt(document.getElementById('simulation_days').value);
+    
+    // Show loading state
+    document.getElementById('results-loading').style.display = 'block';
+    document.getElementById('summary-stats').style.display = 'none';
+    
+    // Simulate inventory over time
+    setTimeout(() => {
+        // This would normally be an API call to do the calculation on the server
+        // For now, we'll simulate it in the browser
+        const results = simulateInventory(
+            initialInventory, 
+            dailyDemandMean, 
+            dailyDemandStdDev, 
+            reorderPoint, 
+            orderQuantity, 
+            leadTime, 
+            simulationDays
+        );
+        
+        // Update charts
+        updateCharts(results);
+        
+        // Update summary statistics
+        updateSummaryStats(results);
+        
+        // Hide loading state
+        document.getElementById('results-loading').style.display = 'none';
+        document.getElementById('summary-stats').style.display = 'block';
+    }, 500);
+}
+
+function simulateInventory(initialInventory, demandMean, demandStdDev, reorderPoint, orderQuantity, leadTime, days) {
+    // Initialize data arrays
+    const inventoryLevels = [];
+    const demandValues = [];
+    const fulfilledDemand = [];
+    const dates = [];
+    
+    // Initialize tracking variables
+    let inventory = initialInventory;
+    let pendingOrders = Array(leadTime).fill(0);
+    let totalDemand = 0;
+    let totalFulfilled = 0;
+    let stockoutDays = 0;
+    let ordersPlaced = 0;
+    let costOfGoodsSold = 0;
+    
+    // Run simulation for each day
+    for (let day = 1; day <= days; day++) {
+        // Generate demand for the day using normal distribution
+        let demand = Math.max(0, Math.round(normalRandom(demandMean, demandStdDev)));
+        demandValues.push(demand);
+        totalDemand += demand;
+        
+        // Add any arriving orders to inventory
+        inventory += pendingOrders.shift();
+        pendingOrders.push(0);
+        
+        // Fulfill demand if possible
+        let fulfilled = Math.min(demand, inventory);
+        fulfilledDemand.push(fulfilled);
+        totalFulfilled += fulfilled;
+        
+        // Update inventory and check for stockout
+        inventory -= fulfilled;
+        if (inventory < demand) {
+            stockoutDays++;
+        }
+        
+        // Record cost of goods sold (simplified as fulfilled demand)
+        costOfGoodsSold += fulfilled;
+        
+        // Check if we need to place an order
+        if (inventory <= reorderPoint) {
+            pendingOrders[pendingOrders.length - leadTime] += orderQuantity;
+            ordersPlaced++;
+        }
+        
+        // Record inventory level
+        inventoryLevels.push(inventory);
+        
+        // Record date
+        dates.push(day);
+    }
+    
+    // Calculate metrics
+    const avgInventory = inventoryLevels.reduce((sum, inv) => sum + inv, initialInventory) / (days + 1);
+    const turnoverRatio = costOfGoodsSold / avgInventory;
+    const daysInventory = 365 / turnoverRatio;
+    const serviceLevel = (totalFulfilled / totalDemand) * 100;
+    
+    return {
+        dates: dates,
+        inventoryLevels: inventoryLevels,
+        demandValues: demandValues,
+        fulfilledDemand: fulfilledDemand,
+        metrics: {
+            turnoverRatio: turnoverRatio,
+            daysInventory: daysInventory,
+            serviceLevel: serviceLevel,
+            stockoutDays: stockoutDays,
+            ordersPlaced: ordersPlaced,
+            avgInventory: avgInventory
+        }
+    };
+}
+
+function updateCharts(results) {
+    // Update inventory chart
+    inventoryChart.data.labels = results.dates;
+    inventoryChart.data.datasets[0].data = results.inventoryLevels;
+    inventoryChart.data.datasets[1].data = Array(results.dates.length).fill(parseInt(document.getElementById('reorder_point').value));
+    inventoryChart.update();
+    
+    // Update demand chart
+    demandChart.data.labels = results.dates;
+    demandChart.data.datasets[0].data = results.demandValues;
+    demandChart.data.datasets[1].data = results.fulfilledDemand;
+    demandChart.update();
+}
+
+function updateSummaryStats(results) {
+    document.getElementById('turnover-ratio').textContent = results.metrics.turnoverRatio.toFixed(2);
+    document.getElementById('days-inventory').textContent = results.metrics.daysInventory.toFixed(2) + ' days';
+    document.getElementById('service-level').textContent = results.metrics.serviceLevel.toFixed(2) + '%';
+    document.getElementById('stockout-events').textContent = results.metrics.stockoutDays;
+    document.getElementById('total-orders').textContent = results.metrics.ordersPlaced;
+    document.getElementById('avg-inventory').textContent = results.metrics.avgInventory.toFixed(2) + ' units';
+}
+
+// Helper function for normal distribution
+function normalRandom(mean, stdDev) {
+    let u = 0, v = 0;
+    while (u === 0) u = Math.random();
+    while (v === 0) v = Math.random();
+    const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
+    return mean + z * stdDev;
+}
+</script>
+{% endblock %} 

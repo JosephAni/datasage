@@ -70,14 +70,14 @@ git clone <repository-url>
 cd data-cleaner
 ```
 
-2. Create a virtual environment and activate it:
+1. Create a virtual environment and activate it:
 
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-3. Install the required packages:
+1. Install the required packages:
 
 ```bash
 pip install -r requirements.txt
@@ -86,6 +86,7 @@ pip install -r requirements.txt
 ## Requirements
 
 For the Flask backend (`new-frontend` branch):
+
 - Python 3.8+
 - flask==2.3.3
 - pandas==2.2.0
@@ -105,6 +106,7 @@ For the Flask backend (`new-frontend` branch):
 - gunicorn==21.2.0
 
 For the Streamlit backend (`main` branch):
+
 - Python 3.8+
 - streamlit==1.31.1
 - pandas==2.2.0
@@ -129,7 +131,7 @@ For the Streamlit backend (`main` branch):
 python app.py
 ```
 
-2. Open your web browser and navigate to `http://127.0.0.1:5000`
+1. Open your web browser and navigate to `http://127.0.0.1:5000`
 
 ### Streamlit Backend (main branch)
 
@@ -139,9 +141,9 @@ python app.py
 streamlit run Home.py
 ```
 
-2. Open your web browser and navigate to the provided URL (typically `http://localhost:8501`)
+1. Open your web browser and navigate to the provided URL (typically `http://localhost:8501`)
 
-3. For both backends:
+1. For both backends:
    - Upload your dataset (CSV, Excel, or JSON file)
    - Use the navigation to access different features
    - Download the cleaned dataset when finished

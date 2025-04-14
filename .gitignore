@@ -1,36 +1,58 @@
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# Virtual environments
-venv/
+*.so
+.Python
 env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
 ENV/
+
+# Flask
+instance/
+.webassets-cache
+
+# Database
+*.db
+*.sqlite3
+
+# Environment variables
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Jupyter Notebook
 .ipynb_checkpoints
-
-# Local development settings
-.env
-.venv
-.idea/
-.vscode/
 
 # Flask uploads
 uploads/
 
 # Logs
 *.log
-
-# OS specific files
-.DS_Store
-Thumbs.db
 
 # Testing
 .coverage
@@ -39,5 +61,4 @@ htmlcov/
 
 # Other
 *.bak
-*.swp
 *~ 

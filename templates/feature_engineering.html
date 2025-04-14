@@ -1,0 +1,492 @@
+{% extends 'base.html' %}
+
+{% block title %}Feature Engineering{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Feature Engineering 🔧</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5>Feature Engineering Tools</h5>
+        </div>
+        <div class="card-body">
+            <p>This page provides tools for feature engineering:</p>
+            <ul>
+                <li>Transform variables</li>
+                <li>Create new features</li>
+                <li>Normalize/standardize data</li>
+                <li>Encode categorical variables</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Data Preview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Data Preview</h5>
+        </div>
+        <div class="card-body">
+            <div id="data-preview">
+                <p>Loading data preview...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Feature Engineering Operations -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Feature Engineering Operations</h5>
+        </div>
+        <div class="card-body">
+            <form id="feature-engineering-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="operation" class="form-label">Select Operation</label>
+                        <select class="form-select" id="operation" name="operation">
+                            <option value="transform">Variable Transformation</option>
+                            <option value="create">Feature Creation</option>
+                            <option value="scale">Scaling/Normalization</option>
+                            <option value="encode">Categorical Encoding</option>
+                            <option value="bin">Binning</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Variable Transformation Section -->
+                <div id="transform-section" class="operation-section">
+                    <h6>Transform Variables</h6>
+                    <p>Apply mathematical transformations to numeric variables.</p>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="transform-cols" class="form-label">Select columns to transform</label>
+                            <select class="form-select" id="transform-cols" name="transform-cols" multiple>
+                                <!-- Columns will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="transform-type" class="form-label">Select transformation type</label>
+                            <select class="form-select" id="transform-type" name="transform-type">
+                                <option value="log">Log</option>
+                                <option value="sqrt">Square Root</option>
+                                <option value="square">Square</option>
+                                <option value="cube">Cube</option>
+                                <option value="boxcox">Box-Cox</option>
+                                <option value="yeojohnson">Yeo-Johnson</option>
+                                <option value="inverse">Inverse</option>
+                                <option value="zscore">Z-Score</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature Creation Section -->
+                <div id="create-section" class="operation-section" style="display: none;">
+                    <h6>Create New Features</h6>
+                    <p>Create new features from existing ones.</p>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="creation-method" class="form-label">Select creation method</label>
+                            <select class="form-select" id="creation-method" name="creation-method">
+                                <option value="arithmetic">Arithmetic Operation</option>
+                                <option value="date">Date Features</option>
+                                <option value="polynomial">Polynomial Features</option>
+                                <option value="binning">Binning</option>
+                                <option value="custom">Custom Formula</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Arithmetic Operation Section -->
+                    <div id="arithmetic-section" class="creation-section">
+                        <div class="row mb-3">
+                            <div class="col-md-4">
+                                <label for="col1" class="form-label">Select first column</label>
+                                <select class="form-select" id="col1" name="col1">
+                                    <!-- Columns will be populated by JavaScript -->
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label for="operation" class="form-label">Operation</label>
+                                <select class="form-select" id="operation" name="operation">
+                                    <option value="+">+</option>
+                                    <option value="-">-</option>
+                                    <option value="*">*</option>
+                                    <option value="/">/</option>
+                                </select>
+                            </div>
+                            <div class="col-md-4">
+                                <label for="col2-type" class="form-label">Second operand type</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="col2-type" id="col2-column" value="column" checked>
+                                    <label class="form-check-label" for="col2-column">Column</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="col2-type" id="col2-constant" value="constant">
+                                    <label class="form-check-label" for="col2-constant">Constant</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="col2-column-section">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="col2" class="form-label">Select second column</label>
+                                    <select class="form-select" id="col2" name="col2">
+                                        <!-- Columns will be populated by JavaScript -->
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="col2-constant-section" style="display: none;">
+                            <div class="row mb-3">
+                                <div class="col-md-6">
+                                    <label for="constant" class="form-label">Enter constant value</label>
+                                    <input type="number" class="form-control" id="constant" name="constant" value="1.0">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="new-feature-name" class="form-label">New feature name</label>
+                                <input type="text" class="form-control" id="new-feature-name" name="new-feature-name">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scaling/Normalization Section -->
+                <div id="scale-section" class="operation-section" style="display: none;">
+                    <h6>Scaling and Normalization</h6>
+                    <p>Scale or normalize numeric variables.</p>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="scale-cols" class="form-label">Select columns to scale</label>
+                            <select class="form-select" id="scale-cols" name="scale-cols" multiple>
+                                <!-- Columns will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="scale-type" class="form-label">Select scaling type</label>
+                            <select class="form-select" id="scale-type" name="scale-type">
+                                <option value="standard">Standard Scaler</option>
+                                <option value="minmax">Min-Max Scaler</option>
+                                <option value="robust">Robust Scaler</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Categorical Encoding Section -->
+                <div id="encode-section" class="operation-section" style="display: none;">
+                    <h6>Categorical Encoding</h6>
+                    <p>Encode categorical variables.</p>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="encode-cols" class="form-label">Select columns to encode</label>
+                            <select class="form-select" id="encode-cols" name="encode-cols" multiple>
+                                <!-- Columns will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="encode-type" class="form-label">Select encoding type</label>
+                            <select class="form-select" id="encode-type" name="encode-type">
+                                <option value="onehot">One-Hot Encoding</option>
+                                <option value="label">Label Encoding</option>
+                                <option value="ordinal">Ordinal Encoding</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Binning Section -->
+                <div id="bin-section" class="operation-section" style="display: none;">
+                    <h6>Binning</h6>
+                    <p>Create bins for numeric variables.</p>
+                    
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label for="bin-cols" class="form-label">Select columns to bin</label>
+                            <select class="form-select" id="bin-cols" name="bin-cols" multiple>
+                                <!-- Columns will be populated by JavaScript -->
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="bin-type" class="form-label">Select binning type</label>
+                            <select class="form-select" id="bin-type" name="bin-type">
+                                <option value="equal-width">Equal Width</option>
+                                <option value="equal-frequency">Equal Frequency</option>
+                                <option value="custom">Custom Bins</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="custom-bins-section" style="display: none;">
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="bin-edges" class="form-label">Enter bin edges (comma-separated)</label>
+                                <input type="text" class="form-control" id="bin-edges" name="bin-edges" placeholder="e.g., 0,10,20,30,40">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Apply Operation</button>
+                    <button type="button" class="btn btn-secondary" id="reset-btn">Reset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div id="results-section" style="display: none;">
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5>Transformation Results</h5>
+            </div>
+            <div class="card-body">
+                <div id="transformation-results">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Load data preview
+    function loadDataPreview() {
+        $.get('/api/data/preview', function(data) {
+            if (data.error) {
+                $('#data-preview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            const preview = data.data.slice(0, 10);
+            const columns = data.columns;
+            
+            let table = '<table class="table table-striped table-bordered"><thead><tr>';
+            columns.forEach(col => {
+                table += `<th>${col}</th>`;
+            });
+            table += '</tr></thead><tbody>';
+            
+            preview.forEach(row => {
+                table += '<tr>';
+                columns.forEach(col => {
+                    table += `<td>${row[col]}</td>`;
+                });
+                table += '</tr>';
+            });
+            
+            table += '</tbody></table>';
+            $('#data-preview').html(table);
+            
+            // Populate column selectors
+            populateColumnSelectors();
+        });
+    }
+    
+    // Populate column selectors
+    function populateColumnSelectors() {
+        $.get('/api/data/columns', function(data) {
+            if (data.error) {
+                return;
+            }
+            
+            const numericCols = data.numeric;
+            const categoricalCols = data.categorical;
+            
+            // Populate transform columns
+            $('#transform-cols').empty();
+            numericCols.forEach(col => {
+                $('#transform-cols').append(`<option value="${col}">${col}</option>`);
+            });
+            
+            // Populate scale columns
+            $('#scale-cols').empty();
+            numericCols.forEach(col => {
+                $('#scale-cols').append(`<option value="${col}">${col}</option>`);
+            });
+            
+            // Populate encode columns
+            $('#encode-cols').empty();
+            categoricalCols.forEach(col => {
+                $('#encode-cols').append(`<option value="${col}">${col}</option>`);
+            });
+            
+            // Populate bin columns
+            $('#bin-cols').empty();
+            numericCols.forEach(col => {
+                $('#bin-cols').append(`<option value="${col}">${col}</option>`);
+            });
+            
+            // Populate arithmetic operation columns
+            $('#col1, #col2').empty();
+            numericCols.forEach(col => {
+                $('#col1, #col2').append(`<option value="${col}">${col}</option>`);
+            });
+        });
+    }
+    
+    // Handle operation selection
+    $('#operation').change(function() {
+        $('.operation-section').hide();
+        $(`#${$(this).val()}-section`).show();
+    });
+    
+    // Handle creation method selection
+    $('#creation-method').change(function() {
+        $('.creation-section').hide();
+        $(`#${$(this).val()}-section`).show();
+    });
+    
+    // Handle col2 type selection
+    $('input[name="col2-type"]').change(function() {
+        if ($(this).val() === 'column') {
+            $('#col2-column-section').show();
+            $('#col2-constant-section').hide();
+        } else {
+            $('#col2-column-section').hide();
+            $('#col2-constant-section').show();
+        }
+    });
+    
+    // Handle bin type selection
+    $('#bin-type').change(function() {
+        if ($(this).val() === 'custom') {
+            $('#custom-bins-section').show();
+        } else {
+            $('#custom-bins-section').hide();
+        }
+    });
+    
+    // Handle form submission
+    $('#feature-engineering-form').submit(function(e) {
+        e.preventDefault();
+        
+        const operation = $('#operation').val();
+        const formData = {};
+        
+        // Collect form data based on operation
+        if (operation === 'transform') {
+            formData.type = 'transform';
+            formData.columns = $('#transform-cols').val();
+            formData.transform_type = $('#transform-type').val();
+        } else if (operation === 'create') {
+            formData.type = 'create';
+            formData.method = $('#creation-method').val();
+            
+            if (formData.method === 'arithmetic') {
+                formData.col1 = $('#col1').val();
+                formData.operation = $('#operation').val();
+                formData.col2_type = $('input[name="col2-type"]:checked').val();
+                
+                if (formData.col2_type === 'column') {
+                    formData.col2 = $('#col2').val();
+                } else {
+                    formData.constant = parseFloat($('#constant').val());
+                }
+                
+                formData.new_name = $('#new-feature-name').val();
+            }
+        } else if (operation === 'scale') {
+            formData.type = 'scale';
+            formData.columns = $('#scale-cols').val();
+            formData.scale_type = $('#scale-type').val();
+        } else if (operation === 'encode') {
+            formData.type = 'encode';
+            formData.columns = $('#encode-cols').val();
+            formData.encode_type = $('#encode-type').val();
+        } else if (operation === 'bin') {
+            formData.type = 'bin';
+            formData.columns = $('#bin-cols').val();
+            formData.bin_type = $('#bin-type').val();
+            
+            if (formData.bin_type === 'custom') {
+                formData.bin_edges = $('#bin-edges').val().split(',').map(Number);
+            }
+        }
+        
+        // Send request to server
+        $.ajax({
+            url: '/api/feature-engineering',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    alert(response.error);
+                    return;
+                }
+                
+                // Show results
+                $('#results-section').show();
+                $('#transformation-results').html(`
+                    <div class="alert alert-success">
+                        Operation completed successfully. ${response.message}
+                    </div>
+                `);
+                
+                // Reload data preview
+                loadDataPreview();
+            },
+            error: function(xhr) {
+                alert('Error: ' + xhr.responseJSON.error);
+            }
+        });
+    });
+    
+    // Handle reset button
+    $('#reset-btn').click(function() {
+        $('#feature-engineering-form')[0].reset();
+        $('.operation-section').hide();
+        $('#transform-section').show();
+        $('#results-section').hide();
+    });
+    
+    // Initial load
+    loadDataPreview();
+});
+</script>
+
+<style>
+.operation-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+.creation-section {
+    margin-top: 15px;
+}
+
+.metric-card {
+    background-color: #34495E;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.metric-card h6 {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.metric-card p {
+    font-size: 1.2em;
+    margin-bottom: 0;
+}
+</style>
+{% endblock %} 

@@ -1,0 +1,568 @@
+{% extends 'base.html' %}
+
+{% block title %}Data Interpretation{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Data Interpretation 🔍</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5>Data Interpretation Tools</h5>
+        </div>
+        <div class="card-body">
+            <p>This page provides comprehensive interpretation of your dataset including:</p>
+            <ul>
+                <li>Statistical summaries and insights</li>
+                <li>Distribution analysis</li>
+                <li>Correlation detection</li>
+                <li>Hypothesis testing</li>
+                <li>Anomaly identification</li>
+            </ul>
+            <p>Get deeper insights into your data to drive better decisions.</p>
+        </div>
+    </div>
+
+    <!-- Data Preview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Data Preview</h5>
+        </div>
+        <div class="card-body">
+            <div id="data-preview">
+                <p>Loading data preview...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dataset Overview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Dataset Overview</h5>
+        </div>
+        <div class="card-body">
+            <div id="dataset-overview">
+                <p>Loading dataset overview...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Missing Values Analysis Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Missing Values Analysis</h5>
+        </div>
+        <div class="card-body">
+            <div id="missing-values">
+                <p>Loading missing values analysis...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistical Analysis Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Statistical Analysis</h5>
+        </div>
+        <div class="card-body">
+            <div id="statistical-analysis">
+                <p>Loading statistical analysis...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Distribution Analysis Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Distribution Analysis</h5>
+        </div>
+        <div class="card-body">
+            <form id="distribution-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="distribution-column" class="form-label">Select column for distribution analysis</label>
+                        <select class="form-select" id="distribution-column" name="distribution-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+            </form>
+            <div id="distribution-plot">
+                <p>Select a column to view its distribution.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Correlation Analysis Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Correlation Analysis</h5>
+        </div>
+        <div class="card-body">
+            <div id="correlation-analysis">
+                <p>Loading correlation analysis...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hypothesis Testing Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Hypothesis Testing</h5>
+        </div>
+        <div class="card-body">
+            <form id="hypothesis-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="test-column" class="form-label">Select column to test</label>
+                        <select class="form-select" id="test-column" name="test-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="test-type" class="form-label">Select test type</label>
+                        <select class="form-select" id="test-type" name="test-type">
+                            <option value="ttest">T-Test</option>
+                            <option value="anova">ANOVA</option>
+                            <option value="chi2">Chi-Square</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Run Test</button>
+                </div>
+            </form>
+            <div id="test-results" class="mt-3">
+                <!-- Test results will be shown here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Load data preview
+    function loadDataPreview() {
+        $.get('/api/data/preview', function(data) {
+            if (data.error) {
+                $('#data-preview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            const preview = data.data.slice(0, 5);
+            const columns = data.columns;
+            
+            let table = '<table class="table table-striped table-bordered"><thead><tr>';
+            columns.forEach(col => {
+                table += `<th>${col}</th>`;
+            });
+            table += '</tr></thead><tbody>';
+            
+            preview.forEach(row => {
+                table += '<tr>';
+                columns.forEach(col => {
+                    table += `<td>${row[col]}</td>`;
+                });
+                table += '</tr>';
+            });
+            
+            table += '</tbody></table>';
+            $('#data-preview').html(table);
+            
+            // Load dataset overview
+            loadDatasetOverview();
+        });
+    }
+    
+    // Load dataset overview
+    function loadDatasetOverview() {
+        $.get('/api/data/overview', function(data) {
+            if (data.error) {
+                $('#dataset-overview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            let overview = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="metric-card">
+                            <h6>Total Records</h6>
+                            <p>${data.total_rows.toLocaleString()}</p>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="metric-card">
+                            <h6>Total Features</h6>
+                            <p>${data.total_cols}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <h6>Data Type Distribution</h6>
+                    <div id="dtype-chart"></div>
+                </div>
+            `;
+            
+            $('#dataset-overview').html(overview);
+            
+            // Create data type distribution chart
+            const dtypeData = data.dtype_counts;
+            const ctx = document.createElement('canvas');
+            $('#dtype-chart').append(ctx);
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(dtypeData),
+                    datasets: [{
+                        label: 'Count',
+                        data: Object.values(dtypeData),
+                        backgroundColor: 'rgba(52, 73, 94, 0.7)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+            
+            // Load missing values analysis
+            loadMissingValues();
+        });
+    }
+    
+    // Load missing values analysis
+    function loadMissingValues() {
+        $.get('/api/data/missing-values', function(data) {
+            if (data.error) {
+                $('#missing-values').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            if (data.missing_df.length === 0) {
+                $('#missing-values').html('<p>No missing values in the dataset.</p>');
+            } else {
+                let table = '<table class="table table-striped table-bordered"><thead><tr><th>Column</th><th>Missing Values</th><th>Percent Missing</th></tr></thead><tbody>';
+                
+                data.missing_df.forEach(row => {
+                    table += `<tr>
+                        <td>${row.column}</td>
+                        <td>${row.missing_values}</td>
+                        <td>${row.percent_missing.toFixed(2)}%</td>
+                    </tr>`;
+                });
+                
+                table += '</tbody></table>';
+                
+                let content = `
+                    <div class="row">
+                        <div class="col-md-12">
+                            ${table}
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-md-12">
+                            <div id="missing-values-chart"></div>
+                        </div>
+                    </div>
+                `;
+                
+                $('#missing-values').html(content);
+                
+                // Create missing values chart
+                const ctx = document.createElement('canvas');
+                $('#missing-values-chart').append(ctx);
+                
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: data.missing_df.map(row => row.column),
+                        datasets: [{
+                            label: 'Missing Percentage',
+                            data: data.missing_df.map(row => row.percent_missing),
+                            backgroundColor: 'rgba(231, 76, 60, 0.7)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: 'Missing Percentage (%)'
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Load statistical analysis
+            loadStatisticalAnalysis();
+        });
+    }
+    
+    // Load statistical analysis
+    function loadStatisticalAnalysis() {
+        $.get('/api/data/statistics', function(data) {
+            if (data.error) {
+                $('#statistical-analysis').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            let content = '';
+            
+            if (data.numeric_stats) {
+                content += `
+                    <h6>Numeric Column Statistics</h6>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Statistic</th>
+                                    ${Object.keys(data.numeric_stats).map(col => `<th>${col}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.keys(data.numeric_stats[Object.keys(data.numeric_stats)[0]]).map(stat => `
+                                    <tr>
+                                        <td>${stat}</td>
+                                        ${Object.keys(data.numeric_stats).map(col => `
+                                            <td>${data.numeric_stats[col][stat]}</td>
+                                        `).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            if (data.categorical_stats) {
+                content += `
+                    <h6 class="mt-4">Categorical Column Analysis</h6>
+                    <div class="table-responsive">
+                        <table class="table table-striped table-bordered">
+                            <thead>
+                                <tr>
+                                    <th>Column</th>
+                                    <th>Unique Values</th>
+                                    <th>Top Value</th>
+                                    <th>Top Count</th>
+                                    <th>Top Percent</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.keys(data.categorical_stats).map(col => `
+                                    <tr>
+                                        <td>${col}</td>
+                                        <td>${data.categorical_stats[col].unique_values}</td>
+                                        <td>${data.categorical_stats[col].top_value}</td>
+                                        <td>${data.categorical_stats[col].top_count}</td>
+                                        <td>${data.categorical_stats[col].top_percent.toFixed(2)}%</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            $('#statistical-analysis').html(content);
+            
+            // Load correlation analysis
+            loadCorrelationAnalysis();
+        });
+    }
+    
+    // Load correlation analysis
+    function loadCorrelationAnalysis() {
+        $.get('/api/data/correlation', function(data) {
+            if (data.error) {
+                $('#correlation-analysis').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            let content = `
+                <div class="row">
+                    <div class="col-md-12">
+                        <div id="correlation-heatmap"></div>
+                    </div>
+                </div>
+            `;
+            
+            $('#correlation-analysis').html(content);
+            
+            // Create correlation heatmap
+            const ctx = document.createElement('canvas');
+            $('#correlation-heatmap').append(ctx);
+            
+            new Chart(ctx, {
+                type: 'heatmap',
+                data: {
+                    labels: data.columns,
+                    datasets: [{
+                        data: data.correlation_matrix,
+                        backgroundColor: 'rgba(52, 152, 219, 0.7)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                maxRotation: 45
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Populate column selectors
+            populateColumnSelectors(data.columns);
+        });
+    }
+    
+    // Populate column selectors
+    function populateColumnSelectors(columns) {
+        // Distribution analysis
+        $('#distribution-column').empty();
+        columns.forEach(col => {
+            $('#distribution-column').append(`<option value="${col}">${col}</option>`);
+        });
+        
+        // Hypothesis testing
+        $('#test-column').empty();
+        columns.forEach(col => {
+            $('#test-column').append(`<option value="${col}">${col}</option>`);
+        });
+    }
+    
+    // Handle distribution form submission
+    $('#distribution-form').submit(function(e) {
+        e.preventDefault();
+        
+        const column = $('#distribution-column').val();
+        
+        $.get(`/api/data/distribution/${column}`, function(data) {
+            if (data.error) {
+                $('#distribution-plot').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            const ctx = document.createElement('canvas');
+            $('#distribution-plot').empty().append(ctx);
+            
+            new Chart(ctx, {
+                type: 'histogram',
+                data: {
+                    labels: data.bins,
+                    datasets: [{
+                        label: 'Frequency',
+                        data: data.frequencies,
+                        backgroundColor: 'rgba(52, 73, 94, 0.7)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Frequency'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: column
+                            }
+                        }
+                    }
+                }
+            });
+        });
+    });
+    
+    // Handle hypothesis testing form submission
+    $('#hypothesis-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            column: $('#test-column').val(),
+            test_type: $('#test-type').val()
+        };
+        
+        $.ajax({
+            url: '/api/data/hypothesis-test',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#test-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let results = `
+                    <div class="alert alert-info">
+                        <h6>Test Results</h6>
+                        <p>Test Type: ${response.test_name}</p>
+                        <p>Statistic: ${response.statistic}</p>
+                        <p>P-value: ${response.p_value}</p>
+                        <p>Interpretation: ${response.interpretation}</p>
+                    </div>
+                `;
+                
+                $('#test-results').html(results);
+            },
+            error: function(xhr) {
+                $('#test-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Initial load
+    loadDataPreview();
+});
+</script>
+
+<style>
+.operation-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+.metric-card {
+    background-color: #34495E;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.metric-card h6 {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.metric-card p {
+    font-size: 1.2em;
+    margin-bottom: 0;
+}
+</style>
+{% endblock %} 

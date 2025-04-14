@@ -1,0 +1,628 @@
+{% extends 'base.html' %}
+
+{% block title %}Machine Learning{% endblock %}
+
+{% block content %}
+<h1 class="main-header">Machine Learning 🤖</h1>
+
+<div class="alert alert-info">
+    <h4>About Machine Learning</h4>
+    <p>Train machine learning models on your data for classification, regression, or clustering tasks.</p>
+</div>
+
+<div id="no-data-warning" class="alert alert-warning" style="display: none;">
+    <strong>No data loaded!</strong> Please upload or load a dataset first.
+</div>
+
+<div class="row" id="ml-container" style="display: none;">
+    <!-- Model Configuration -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Model Configuration</h4>
+            </div>
+            <div class="card-body">
+                <form id="ml-form">
+                    <!-- Problem Type -->
+                    <div class="form-group mb-3">
+                        <label for="problem-type"><strong>Problem Type:</strong></label>
+                        <select class="form-control" id="problem-type" name="problem_type" required>
+                            <option value="">Select a problem type</option>
+                            <option value="classification">Classification</option>
+                            <option value="regression">Regression</option>
+                            <option value="clustering">Clustering</option>
+                        </select>
+                    </div>
+
+                    <!-- Target Variable (for classification/regression) -->
+                    <div class="form-group mb-3" id="target-container" style="display: none;">
+                        <label for="target-variable"><strong>Target Variable:</strong></label>
+                        <select class="form-control" id="target-variable" name="target_variable">
+                            <!-- Options will be populated dynamically -->
+                        </select>
+                    </div>
+
+                    <!-- Features -->
+                    <div class="form-group mb-3">
+                        <label><strong>Features:</strong></label>
+                        <div id="features-container">
+                            <!-- Feature checkboxes will be populated dynamically -->
+                        </div>
+                        <div class="mt-2">
+                            <button type="button" class="btn btn-sm btn-outline-primary" id="select-all-features">Select All</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="clear-all-features">Clear All</button>
+                        </div>
+                    </div>
+
+                    <!-- Model Type -->
+                    <div class="form-group mb-3">
+                        <label for="model-type"><strong>Model Type:</strong></label>
+                        <select class="form-control" id="model-type" name="model_type" required>
+                            <option value="">Select a model type</option>
+                            <!-- Classification models -->
+                            <option class="classification-model" value="logistic_regression">Logistic Regression</option>
+                            <option class="classification-model" value="decision_tree_classifier">Decision Tree</option>
+                            <option class="classification-model" value="random_forest_classifier">Random Forest</option>
+                            <option class="classification-model" value="svm_classifier">Support Vector Machine</option>
+                            <option class="classification-model" value="knn_classifier">K-Nearest Neighbors</option>
+                            
+                            <!-- Regression models -->
+                            <option class="regression-model" value="linear_regression">Linear Regression</option>
+                            <option class="regression-model" value="decision_tree_regressor">Decision Tree Regressor</option>
+                            <option class="regression-model" value="random_forest_regressor">Random Forest Regressor</option>
+                            <option class="regression-model" value="svm_regressor">SVR (Support Vector Regressor)</option>
+                            
+                            <!-- Clustering models -->
+                            <option class="clustering-model" value="kmeans">K-Means</option>
+                            <option class="clustering-model" value="hierarchical">Hierarchical Clustering</option>
+                            <option class="clustering-model" value="dbscan">DBSCAN</option>
+                        </select>
+                    </div>
+
+                    <!-- Model Parameters -->
+                    <div id="model-specific-params">
+                        <!-- Model-specific parameters will be populated dynamically -->
+                    </div>
+
+                    <!-- Training Parameters -->
+                    <div class="form-group mb-3">
+                        <label for="test-size"><strong>Test Size:</strong> <span id="test-size-value">0.2</span></label>
+                        <input type="range" class="form-range" id="test-size" name="test_size" min="0.1" max="0.5" step="0.1" value="0.2">
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="random-seed"><strong>Random Seed:</strong></label>
+                        <input type="number" class="form-control" id="random-seed" name="random_seed" value="42" min="0">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100">Train Model</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="col-md-8">
+        <div id="training-error" class="alert alert-danger" style="display: none;"></div>
+        
+        <div id="results-section" style="display: none;">
+            <div class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Model Performance</h4>
+                </div>
+                <div class="card-body">
+                    <div id="metrics-container">
+                        <!-- Metrics will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="card mb-4" id="feature-importance-container" style="display: none;">
+                <div class="card-header bg-info text-white">
+                    <h4 class="mb-0">Feature Importance</h4>
+                </div>
+                <div class="card-body">
+                    <div id="feature-importance"></div>
+                </div>
+            </div>
+
+            <div class="card mb-4" id="prediction-section" style="display: none;">
+                <div class="card-header bg-warning text-dark">
+                    <h4 class="mb-0">Make Predictions</h4>
+                </div>
+                <div class="card-body">
+                    <form id="prediction-form">
+                        <div class="row" id="input-features">
+                            <!-- Input fields will be populated here -->
+                        </div>
+                        <button type="submit" class="btn btn-warning">Predict</button>
+                    </form>
+                    <div id="prediction-result" class="mt-3" style="display: none;">
+                        <!-- Prediction results will be shown here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if data is loaded
+    fetch('/api/ml/data/preview')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Data preview response:', data);
+            if (data.error) {
+                console.error('Data preview error:', data.error);
+                document.getElementById('no-data-warning').style.display = 'block';
+                document.getElementById('ml-container').style.display = 'none';
+            } else {
+                document.getElementById('no-data-warning').style.display = 'none';
+                document.getElementById('ml-container').style.display = 'block';
+                
+                // Populate feature selection
+                populateFeatures(data.columns);
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching data preview:', error);
+            document.getElementById('no-data-warning').style.display = 'block';
+            document.getElementById('ml-container').style.display = 'none';
+        });
+    
+    // Populate features
+    function populateFeatures(columns) {
+        const container = document.getElementById('features-container');
+        const targetSelect = document.getElementById('target-variable');
+        
+        // Clear existing options
+        container.innerHTML = '';
+        targetSelect.innerHTML = '<option value="">Select target variable</option>';
+        
+        columns.forEach(column => {
+            // Add feature checkbox
+            const div = document.createElement('div');
+            div.className = 'form-check';
+            div.innerHTML = `
+                <input class="form-check-input feature-checkbox" type="checkbox" value="${column}" id="feature-${column}">
+                <label class="form-check-label" for="feature-${column}">${column}</label>
+            `;
+            container.appendChild(div);
+            
+            // Add target option
+            const option = document.createElement('option');
+            option.value = column;
+            option.textContent = column;
+            targetSelect.appendChild(option);
+        });
+    }
+    
+    // Handle problem type change
+    document.getElementById('problem-type').addEventListener('change', function() {
+        const problemType = this.value;
+        const targetContainer = document.getElementById('target-container');
+        const modelType = document.getElementById('model-type');
+        
+        // Show/hide target selection
+        if (problemType === 'clustering') {
+            targetContainer.style.display = 'none';
+        } else {
+            targetContainer.style.display = 'block';
+        }
+        
+        // Update available models
+        Array.from(modelType.options).forEach(option => {
+            if (option.value === '') return;
+            
+            if (option.className === `${problemType}-model`) {
+                option.style.display = 'block';
+            } else {
+                option.style.display = 'none';
+            }
+        });
+        
+        // Reset model selection
+        modelType.value = '';
+        
+        // Update model parameters
+        updateModelParams();
+    });
+    
+    // Handle model type change
+    document.getElementById('model-type').addEventListener('change', updateModelParams);
+    
+    function updateModelParams() {
+        const modelType = document.getElementById('model-type').value;
+        const container = document.getElementById('model-specific-params');
+        container.innerHTML = '';
+        
+        if (!modelType) return;
+        
+        // Model-specific parameters
+        const params = {
+            'logistic_regression': [
+                { name: 'C', type: 'number', default: 1.0, min: 0.01, step: 0.1, label: 'Regularization (C)' },
+                { name: 'max_iter', type: 'number', default: 1000, min: 100, step: 100, label: 'Max Iterations' }
+            ],
+            'decision_tree_classifier': [
+                { name: 'max_depth', type: 'number', default: 5, min: 1, step: 1, label: 'Max Depth' },
+                { name: 'min_samples_split', type: 'number', default: 2, min: 2, step: 1, label: 'Min Samples Split' }
+            ],
+            'random_forest_classifier': [
+                { name: 'n_estimators', type: 'number', default: 100, min: 10, step: 10, label: 'Number of Trees' },
+                { name: 'max_depth', type: 'number', default: 5, min: 1, step: 1, label: 'Max Depth' }
+            ],
+            'svm_classifier': [
+                { name: 'C', type: 'number', default: 1.0, min: 0.01, step: 0.1, label: 'Regularization (C)' },
+                { name: 'kernel', type: 'select', options: ['rbf', 'linear', 'poly', 'sigmoid'], default: 'rbf', label: 'Kernel' }
+            ],
+            'knn_classifier': [
+                { name: 'n_neighbors', type: 'number', default: 5, min: 1, step: 1, label: 'Number of Neighbors' },
+                { name: 'weights', type: 'select', options: ['uniform', 'distance'], default: 'uniform', label: 'Weight Function' }
+            ],
+            'linear_regression': [
+                { name: 'fit_intercept', type: 'checkbox', default: true, label: 'Fit Intercept' }
+            ],
+            'decision_tree_regressor': [
+                { name: 'max_depth', type: 'number', default: 5, min: 1, step: 1, label: 'Max Depth' },
+                { name: 'min_samples_split', type: 'number', default: 2, min: 2, step: 1, label: 'Min Samples Split' }
+            ],
+            'random_forest_regressor': [
+                { name: 'n_estimators', type: 'number', default: 100, min: 10, step: 10, label: 'Number of Trees' },
+                { name: 'max_depth', type: 'number', default: 5, min: 1, step: 1, label: 'Max Depth' }
+            ],
+            'svm_regressor': [
+                { name: 'C', type: 'number', default: 1.0, min: 0.01, step: 0.1, label: 'Regularization (C)' },
+                { name: 'kernel', type: 'select', options: ['rbf', 'linear', 'poly', 'sigmoid'], default: 'rbf', label: 'Kernel' }
+            ],
+            'kmeans': [
+                { name: 'n_clusters', type: 'number', default: 3, min: 2, step: 1, label: 'Number of Clusters' },
+                { name: 'init', type: 'select', options: ['k-means++', 'random'], default: 'k-means++', label: 'Initialization Method' }
+            ],
+            'dbscan': [
+                { name: 'eps', type: 'number', default: 0.5, min: 0.1, step: 0.1, label: 'Epsilon (neighborhood distance)' },
+                { name: 'min_samples', type: 'number', default: 5, min: 2, step: 1, label: 'Min Samples' }
+            ]
+        };
+        
+        const modelParams = params[modelType] || [];
+        
+        if (modelParams.length > 0) {
+            container.innerHTML = '<h5 class="mt-3">Model Parameters</h5>';
+            const row = document.createElement('div');
+            row.className = 'row';
+            
+            modelParams.forEach(param => {
+                const col = document.createElement('div');
+                col.className = 'col-md-6 mb-3';
+                
+                if (param.type === 'number') {
+                    col.innerHTML = `
+                        <label for="${param.name}"><strong>${param.label}:</strong></label>
+                        <input type="number" class="form-control" id="${param.name}" name="${param.name}"
+                               value="${param.default}" min="${param.min}" step="${param.step}">
+                    `;
+                } else if (param.type === 'select') {
+                    let options = param.options.map(opt => 
+                        `<option value="${opt}" ${opt === param.default ? 'selected' : ''}>${opt}</option>`
+                    ).join('');
+                    
+                    col.innerHTML = `
+                        <label for="${param.name}"><strong>${param.label}:</strong></label>
+                        <select class="form-control" id="${param.name}" name="${param.name}">
+                            ${options}
+                        </select>
+                    `;
+                } else if (param.type === 'checkbox') {
+                    col.innerHTML = `
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="${param.name}" name="${param.name}"
+                                   ${param.default ? 'checked' : ''}>
+                            <label class="form-check-label" for="${param.name}">
+                                <strong>${param.label}</strong>
+                            </label>
+                        </div>
+                    `;
+                }
+                
+                row.appendChild(col);
+            });
+            
+            container.appendChild(row);
+        }
+    }
+    
+    // Feature selection helpers
+    document.getElementById('select-all-features').addEventListener('click', function() {
+        document.querySelectorAll('.feature-checkbox').forEach(cb => cb.checked = true);
+    });
+    
+    document.getElementById('clear-all-features').addEventListener('click', function() {
+        document.querySelectorAll('.feature-checkbox').forEach(cb => cb.checked = false);
+    });
+    
+    // Test size slider update
+    document.getElementById('test-size').addEventListener('input', function() {
+        document.getElementById('test-size-value').textContent = this.value;
+    });
+    
+    // Handle form submission
+    document.getElementById('ml-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get selected features
+        const selectedFeatures = Array.from(document.querySelectorAll('.feature-checkbox:checked'))
+            .map(cb => cb.value);
+            
+        if (selectedFeatures.length === 0) {
+            alert('Please select at least one feature');
+            return;
+        }
+        
+        const problemType = document.getElementById('problem-type').value;
+        if (!problemType) {
+            alert('Please select a problem type');
+            return;
+        }
+        
+        const modelType = document.getElementById('model-type').value;
+        if (!modelType) {
+            alert('Please select a model type');
+            return;
+        }
+        
+        if (problemType !== 'clustering') {
+            const targetVariable = document.getElementById('target-variable').value;
+            if (!targetVariable) {
+                alert('Please select a target variable');
+                return;
+            }
+            if (selectedFeatures.includes(targetVariable)) {
+                alert('Target variable cannot be used as a feature');
+                return;
+            }
+        }
+        
+        // Show loading state
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalText = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.innerHTML = `
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Training...
+        `;
+        
+        // Hide previous results and errors
+        document.getElementById('training-error').style.display = 'none';
+        document.getElementById('results-section').style.display = 'none';
+        
+        // Prepare form data
+        const formData = {
+            problem_type: problemType,
+            model_type: modelType,
+            features: selectedFeatures,
+            test_size: parseFloat(document.getElementById('test-size').value),
+            random_seed: parseInt(document.getElementById('random-seed').value)
+        };
+        
+        // Add target variable for classification/regression
+        if (problemType !== 'clustering') {
+            formData.target_variable = document.getElementById('target-variable').value;
+        }
+        
+        // Add model-specific parameters
+        const modelParams = document.getElementById('model-specific-params')
+            .querySelectorAll('input, select');
+        
+        modelParams.forEach(param => {
+            if (param.type === 'checkbox') {
+                formData[param.name] = param.checked;
+            } else if (param.type === 'number') {
+                formData[param.name] = parseFloat(param.value);
+            } else {
+                formData[param.name] = param.value;
+            }
+        });
+        
+        // Send request to train model
+        fetch('/api/ml/train', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Display results
+            displayResults(data);
+            
+            // Reset form state
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        })
+        .catch(error => {
+            console.error('Error training model:', error);
+            document.getElementById('training-error').textContent = error.message;
+            document.getElementById('training-error').style.display = 'block';
+            
+            // Reset form state
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        });
+    });
+    
+    // Handle prediction form submission
+    document.getElementById('prediction-form').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        // Get input values
+        const formData = {};
+        this.querySelectorAll('input').forEach(input => {
+            formData[input.name] = parseFloat(input.value);
+        });
+        
+        // Show loading state
+        const submitButton = this.querySelector('button[type="submit"]');
+        const originalText = submitButton.textContent;
+        submitButton.disabled = true;
+        submitButton.innerHTML = `
+            <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+            Predicting...
+        `;
+        
+        // Make prediction request
+        fetch('/api/ml/predict', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            const resultDiv = document.getElementById('prediction-result');
+            resultDiv.style.display = 'block';
+            
+            const problemType = document.getElementById('problem-type').value;
+            
+            if (problemType === 'classification') {
+                let html = `<h5>Predicted Class: ${data.prediction}</h5>`;
+                
+                if (data.probabilities) {
+                    html += '<h6>Class Probabilities:</h6><ul>';
+                    Object.entries(data.probabilities)
+                        .sort((a, b) => b[1] - a[1])
+                        .forEach(([cls, prob]) => {
+                            html += `<li>${cls}: ${(prob * 100).toFixed(2)}%</li>`;
+                        });
+                    html += '</ul>';
+                }
+                
+                resultDiv.innerHTML = html;
+            } else if (problemType === 'regression') {
+                resultDiv.innerHTML = `<h5>Predicted Value: ${data.prediction.toFixed(4)}</h5>`;
+            } else {  // clustering
+                resultDiv.innerHTML = `<h5>Assigned Cluster: ${data.prediction}</h5>`;
+            }
+            
+            // Reset button state
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        })
+        .catch(error => {
+            console.error('Error making prediction:', error);
+            alert(error.message);
+            
+            // Reset button state
+            submitButton.disabled = false;
+            submitButton.textContent = originalText;
+        });
+    });
+});
+
+function displayResults(results) {
+    // Show results section
+    document.getElementById('results-section').style.display = 'block';
+    
+    // Display metrics
+    const metricsContainer = document.getElementById('metrics-container');
+    metricsContainer.innerHTML = '';
+    
+    if (results.metrics) {
+        const table = document.createElement('table');
+        table.className = 'table table-bordered';
+        table.innerHTML = `
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${Object.entries(results.metrics)
+                    .map(([metric, value]) => `
+                        <tr>
+                            <td>${metric.replace(/_/g, ' ').toUpperCase()}</td>
+                            <td>${typeof value === 'number' ? value.toFixed(4) : value}</td>
+                        </tr>
+                    `).join('')}
+            </tbody>
+        `;
+        metricsContainer.appendChild(table);
+    }
+    
+    // Display feature importance if available
+    const featureImportanceContainer = document.getElementById('feature-importance-container');
+    
+    if (results.feature_importance) {
+        featureImportanceContainer.style.display = 'block';
+        
+        // Sort features by importance
+        const indices = results.feature_importance.values
+            .map((value, index) => ({ value, index }))
+            .sort((a, b) => b.value - a.value)
+            .map(item => item.index);
+            
+        const sortedFeatures = indices.map(i => results.feature_importance.features[i]);
+        const sortedValues = indices.map(i => results.feature_importance.values[i]);
+        
+        Plotly.newPlot('feature-importance', [{
+            y: sortedFeatures,
+            x: sortedValues,
+            type: 'bar',
+            orientation: 'h',
+            marker: {
+                color: sortedValues,
+                colorscale: 'Viridis'
+            }
+        }], {
+            title: 'Feature Importance',
+            margin: { l: 150 },
+            xaxis: { title: 'Importance' },
+            yaxis: { title: 'Feature' }
+        });
+    } else {
+        featureImportanceContainer.style.display = 'none';
+    }
+    
+    // Show prediction section
+    const predictionSection = document.getElementById('prediction-section');
+    predictionSection.style.display = 'block';
+    
+    // Generate prediction form
+    const inputFeatures = document.getElementById('input-features');
+    inputFeatures.innerHTML = '';
+    
+    results.features.forEach(feature => {
+        const div = document.createElement('div');
+        div.className = 'col-md-6 mb-3';
+        div.innerHTML = `
+            <label for="pred-${feature}"><strong>${feature}:</strong></label>
+            <input type="number" class="form-control" id="pred-${feature}" name="${feature}" step="any" required>
+        `;
+        inputFeatures.appendChild(div);
+    });
+    
+    // Clear any previous prediction result
+    document.getElementById('prediction-result').style.display = 'none';
+}
+</script>
+{% endblock %} 

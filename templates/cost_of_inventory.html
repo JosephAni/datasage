@@ -1,0 +1,331 @@
+{% extends "base.html" %}
+
+{% block title %}Cost of Inventory Analysis{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+<style>
+    .cost-card {
+        background-color: #2C3E50;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    .result-card {
+        background-color: #4B70E2;
+        color: white;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+    }
+    .metric-card {
+        background-color: #34495E;
+        color: white;
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+        margin: 10px 0;
+    }
+    .metric-label {
+        font-size: 14px;
+        opacity: 0.9;
+    }
+    .help-text {
+        font-size: 12px;
+        opacity: 0.7;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h1 class="main-header">Cost of Inventory Analysis 💰</h1>
+
+<div class="cost-card">
+    <h3>Calculate Your Inventory Costs</h3>
+    <p>This tool helps you analyze different components of inventory costs and efficiency metrics to optimize your inventory management strategy.</p>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Direct Costs</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="purchase-cost" class="form-label">Purchase Cost per Unit ($)</label>
+                    <input type="number" class="form-control" id="purchase-cost" value="75.0" min="0" step="1">
+                    <div class="form-text">The direct cost of acquiring one unit of inventory</div>
+                </div>
+                <div class="mb-3">
+                    <label for="order-cost" class="form-label">Cost of Placing an Order ($)</label>
+                    <input type="number" class="form-control" id="order-cost" value="250.0" min="0" step="10">
+                    <div class="form-text">The expenses associated with ordering more inventory</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h4 class="mb-0">Holding Costs</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="physical-rate" class="form-label">Physical Holding Cost Rate (%)</label>
+                    <input type="number" class="form-control" id="physical-rate" value="15.0" min="0" step="0.1">
+                    <div class="form-text">Percentage of inventory value for physical storage costs</div>
+                </div>
+                <div class="mb-3">
+                    <label for="financial-rate" class="form-label">Financial Holding Cost Rate (%)</label>
+                    <input type="number" class="form-control" id="financial-rate" value="12.0" min="0" step="0.1">
+                    <div class="form-text">Percentage of inventory value for opportunity cost of capital</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0">Financial Metrics</h4>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="annual-sales" class="form-label">Annual Sales ($)</label>
+                    <input type="number" class="form-control" id="annual-sales" value="5000000.0" min="0" step="10000">
+                    <div class="form-text">Total annual sales revenue</div>
+                </div>
+                <div class="mb-3">
+                    <label for="cogs" class="form-label">Cost of Goods Sold ($)</label>
+                    <input type="number" class="form-control" id="cogs" value="3500000.0" min="0" step="10000">
+                    <div class="form-text">Total cost of goods sold annually</div>
+                </div>
+                <div class="mb-3">
+                    <label for="avg-inventory" class="form-label">Average Inventory Value ($)</label>
+                    <input type="number" class="form-control" id="avg-inventory" value="875000.0" min="0" step="5000">
+                    <div class="form-text">The average value of inventory held during the period</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-12 text-center">
+        <button class="btn btn-primary btn-lg" id="calculate-btn">Calculate Metrics</button>
+        <button class="btn btn-secondary btn-lg ms-2" id="reset-btn">Reset Values</button>
+    </div>
+</div>
+
+<div id="results" style="display: none;">
+    <h3>Cost Analysis</h3>
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="metric-card">
+                <div class="metric-label">Physical Holding Cost</div>
+                <div class="metric-value" id="physical-holding-cost">$0.00</div>
+                <div class="help-text">Costs related to physically storing the inventory</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card">
+                <div class="metric-label">Financial Holding Cost</div>
+                <div class="metric-value" id="financial-holding-cost">$0.00</div>
+                <div class="help-text">Opportunity cost of capital invested in inventory</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card">
+                <div class="metric-label">Total Holding Cost</div>
+                <div class="metric-value" id="total-holding-cost">$0.00</div>
+                <div class="help-text">Sum of physical and financial holding costs</div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="metric-card">
+                <div class="metric-label">Total Inventory Cost</div>
+                <div class="metric-value" id="total-inventory-cost">$0.00</div>
+                <div class="help-text">Total cost including purchase, order, and holding costs</div>
+            </div>
+        </div>
+    </div>
+
+    <h3>Efficiency Metrics</h3>
+    <div class="row mb-4">
+        <div class="col-md-4">
+            <div class="metric-card">
+                <div class="metric-label">Inventory Turnover</div>
+                <div class="metric-value" id="inventory-turnover">0.00x</div>
+                <div class="help-text">Number of times inventory is sold and replaced over a period</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="metric-card">
+                <div class="metric-label">Days Inventory</div>
+                <div class="metric-value" id="days-inventory">0.00 days</div>
+                <div class="help-text">Average number of days it takes to sell inventory</div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="metric-card">
+                <div class="metric-label">Asset Turnover</div>
+                <div class="metric-value" id="asset-turnover">0.00x</div>
+                <div class="help-text">Efficiency of asset use in generating sales</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h4 class="mb-0">Cost Breakdown</h4>
+                </div>
+                <div class="card-body">
+                    <div id="cost-breakdown-chart" style="height: 400px;"></div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h4 class="mb-0">Efficiency Metrics Comparison</h4>
+                </div>
+                <div class="card-body">
+                    <div id="efficiency-metrics-chart" style="height: 400px;"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calculateBtn = document.getElementById('calculate-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const resultsDiv = document.getElementById('results');
+
+    calculateBtn.addEventListener('click', calculateMetrics);
+    resetBtn.addEventListener('click', resetValues);
+
+    function calculateMetrics() {
+        const data = {
+            purchase_cost: parseFloat(document.getElementById('purchase-cost').value),
+            order_cost: parseFloat(document.getElementById('order-cost').value),
+            physical_holding_rate: parseFloat(document.getElementById('physical-rate').value),
+            financial_holding_rate: parseFloat(document.getElementById('financial-rate').value),
+            annual_sales: parseFloat(document.getElementById('annual-sales').value),
+            cogs: parseFloat(document.getElementById('cogs').value),
+            avg_inventory_value: parseFloat(document.getElementById('avg-inventory').value)
+        };
+
+        fetch('/api/inventory/calculate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(metrics => {
+            updateMetrics(metrics);
+            createCharts(metrics, data);
+            resultsDiv.style.display = 'block';
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error calculating metrics. Please check your input values.');
+        });
+    }
+
+    function updateMetrics(metrics) {
+        document.getElementById('physical-holding-cost').textContent = formatCurrency(metrics.physical_holding_cost);
+        document.getElementById('financial-holding-cost').textContent = formatCurrency(metrics.financial_holding_cost);
+        document.getElementById('total-holding-cost').textContent = formatCurrency(metrics.total_holding_cost);
+        document.getElementById('total-inventory-cost').textContent = formatCurrency(metrics.total_inventory_cost);
+        document.getElementById('inventory-turnover').textContent = metrics.inventory_turnover.toFixed(2) + 'x';
+        document.getElementById('days-inventory').textContent = metrics.days_inventory.toFixed(2) + ' days';
+        document.getElementById('asset-turnover').textContent = metrics.asset_turnover.toFixed(2) + 'x';
+    }
+
+    function createCharts(metrics, data) {
+        // Cost Breakdown Pie Chart
+        const costTrace = {
+            values: [
+                metrics.physical_holding_cost,
+                metrics.financial_holding_cost,
+                data.order_cost,
+                data.purchase_cost
+            ],
+            labels: [
+                'Physical Holding Cost',
+                'Financial Holding Cost',
+                'Order Cost',
+                'Purchase Cost'
+            ],
+            type: 'pie',
+            hole: 0.4
+        };
+
+        const costLayout = {
+            title: 'Total Cost Breakdown',
+            height: 400,
+            showlegend: true
+        };
+
+        Plotly.newPlot('cost-breakdown-chart', [costTrace], costLayout);
+
+        // Efficiency Metrics Bar Chart
+        const efficiencyTrace = {
+            x: ['Inventory Turnover', 'Days Inventory', 'Asset Turnover'],
+            y: [
+                metrics.inventory_turnover,
+                metrics.days_inventory,
+                metrics.asset_turnover
+            ],
+            type: 'bar',
+            marker: {
+                color: ['#2ecc71', '#3498db', '#e74c3c']
+            }
+        };
+
+        const efficiencyLayout = {
+            title: 'Efficiency Metrics Comparison',
+            height: 400,
+            yaxis: {
+                title: 'Value'
+            }
+        };
+
+        Plotly.newPlot('efficiency-metrics-chart', [efficiencyTrace], efficiencyLayout);
+    }
+
+    function resetValues() {
+        document.getElementById('purchase-cost').value = '75.0';
+        document.getElementById('order-cost').value = '250.0';
+        document.getElementById('physical-rate').value = '15.0';
+        document.getElementById('financial-rate').value = '12.0';
+        document.getElementById('annual-sales').value = '5000000.0';
+        document.getElementById('cogs').value = '3500000.0';
+        document.getElementById('avg-inventory').value = '875000.0';
+        resultsDiv.style.display = 'none';
+    }
+
+    function formatCurrency(value) {
+        return '$' + value.toLocaleString('en-US', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2
+        });
+    }
+});
+</script>
+{% endblock %} 

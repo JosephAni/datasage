@@ -5,8 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}AI-Powered Data Cleaning Agent{% endblock %}</title>
     
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
@@ -17,67 +23,133 @@
     {% block extra_head %}{% endblock %}
 </head>
 <body>
-    <header>
-        <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
-            <div class="container">
-                <a class="navbar-brand" href="/">AI-Powered Data Cleaning Agent 🖨️💎🛁📊🤖</a>
-                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" 
-                        data-bs-target="#navbarNav" aria-controls="navbarNav" 
-                        aria-expanded="false" aria-label="Toggle navigation">
-                    <span class="navbar-toggler-icon"></span>
-                </button>
-                <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav">
-                        <li class="nav-item">
-                            <a class="nav-link" href="/">Home</a>
+    <div class="wrapper">
+        <!-- Sidebar -->
+        <nav id="sidebar" class="bg-dark">
+            <div class="sidebar-header">
+                <h3>AI-Powered Data Cleaning Agent</h3>
+            </div>
+
+            <ul class="list-unstyled components">
+                <li>
+                    <a href="/" class="nav-link">
+                        <i class="fas fa-home"></i> Home
+                    </a>
+                </li>
+                <li>
+                    <a href="/manage_files" class="nav-link">
+                        <i class="fas fa-file-alt"></i> Manage Files
+                    </a>
+                </li>
+                <li>
+                    <a href="#dataSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
+                        <i class="fas fa-database"></i> Data Cleaning
+                    </a>
+                    <ul class="collapse list-unstyled" id="dataSubmenu">
+                        <li>
+                            <a href="/data_cleaning" class="nav-link">Basic Cleaning</a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/data_cleaning">Data Cleaning</a>
+                        <li>
+                            <a href="/advanced_data_cleaning" class="nav-link">Advanced Cleaning</a>
                         </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/inventory_turnover">Inventory Turnover</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/data_visualization">Data Visualization</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/time_series">Time Series</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/clv_analysis">CLV Analysis</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/machine_learning">Machine Learning</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/newsvendor_simulation">NewsVendor Simulation</a>
-                        </li>
-                        <li class="nav-item">
-                            <a class="nav-link" href="/eoq_simulation">EOQ Simulation</a>
+                        <li>
+                            <a href="/convert_data_types" class="nav-link">Convert Data Types</a>
                         </li>
                     </ul>
-                </div>
-            </div>
+                </li>
+                <li>
+                    <a href="#analysisSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
+                        <i class="fas fa-chart-bar"></i> Analysis
+                    </a>
+                    <ul class="collapse list-unstyled" id="analysisSubmenu">
+                        <li>
+                            <a href="/data_interpretation" class="nav-link">Data Interpretation</a>
+                        </li>
+                        <li>
+                            <a href="/advanced_data_analysis" class="nav-link">Advanced Analysis</a>
+                        </li>
+                        <li>
+                            <a href="/feature_engineering" class="nav-link">Feature Engineering</a>
+                        </li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="#mlSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
+                        <i class="fas fa-brain"></i> Machine Learning
+                    </a>
+                    <ul class="collapse list-unstyled" id="mlSubmenu">
+                        <li>
+                            <a href="/machine_learning" class="nav-link">ML Models</a>
+                        </li>
+                        <li>
+                            <a href="/time_series" class="nav-link">Time Series</a>
+                        </li>
+                        <li>
+                            <a href="/demand_forecasting" class="nav-link">Demand Forecasting</a>
+                        </li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="#inventorySubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
+                        <i class="fas fa-boxes"></i> Inventory
+                    </a>
+                    <ul class="collapse list-unstyled" id="inventorySubmenu">
+                        <li>
+                            <a href="/inventory_turnover" class="nav-link">Turnover</a>
+                        </li>
+                        <li>
+                            <a href="/cost_of_inventory" class="nav-link">Cost Analysis</a>
+                        </li>
+                        <li>
+                            <a href="/eoq_simulation" class="nav-link">EOQ Simulation</a>
+                        </li>
+                        <li>
+                            <a href="/newsvendor_simulation" class="nav-link">Newsvendor</a>
+                        </li>
+                        <li>
+                            <a href="/safety_stock" class="nav-link">Safety Stock</a>
+                        </li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="#customerSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
+                        <i class="fas fa-users"></i> Customer Analysis
+                    </a>
+                    <ul class="collapse list-unstyled" id="customerSubmenu">
+                        <li>
+                            <a href="/clv_analysis" class="nav-link">CLV Analysis</a>
+                        </li>
+                    </ul>
+                </li>
+                <li>
+                    <a href="/data_visualization" class="nav-link">
+                        <i class="fas fa-chart-line"></i> Visualization
+                    </a>
+                </li>
+            </ul>
         </nav>
-    </header>
 
-    <main class="container mt-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }}">{{ message }}</div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-        
-        {% block content %}{% endblock %}
-    </main>
+        <!-- Page Content -->
+        <div id="content">
+            <!-- Toggle Button -->
+            <button type="button" id="sidebarCollapse" class="btn btn-info">
+                <i class="fas fa-bars"></i>
+                <span>Toggle Sidebar</span>
+            </button>
 
-    <footer class="bg-light py-3 mt-5">
-        <div class="container text-center">
-            <p>© 2023 AI-Powered Data Cleaning Agent</p>
+            <main class="container-fluid py-4">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                {% block content %}{% endblock %}
+            </main>
         </div>
-    </footer>
+    </div>
 
     <!-- Bootstrap JS Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -86,5 +158,54 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     
     {% block scripts %}{% endblock %}
+
+    {% block head %}
+    <script>
+    // Global data management
+    const DataState = {
+        isLoaded: false,
+        metadata: null,
+        columnTypes: null,
+        columnStats: null,
+        
+        async initialize() {
+            try {
+                const response = await fetch('/api/data/info');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.isLoaded = true;
+                    this.metadata = data.metadata;
+                    this.columnTypes = data.column_types;
+                    this.columnStats = data.column_stats;
+                    document.dispatchEvent(new CustomEvent('dataStateUpdated'));
+                } else {
+                    this.isLoaded = false;
+                    console.error('Failed to load data state');
+                }
+            } catch (error) {
+                console.error('Error initializing data state:', error);
+            }
+        },
+        
+        async getPreview() {
+            try {
+                const response = await fetch('/api/data/preview');
+                if (response.ok) {
+                    return await response.json();
+                }
+                throw new Error('Failed to load data preview');
+            } catch (error) {
+                console.error('Error getting data preview:', error);
+                return null;
+            }
+        }
+    };
+
+    // Initialize data state when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        DataState.initialize();
+    });
+    </script>
+    {% endblock %}
 </body>
 </html> 

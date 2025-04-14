@@ -1,0 +1,421 @@
+{% extends 'base.html' %}
+
+{% block title %}Advanced Data Cleaning{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Advanced Data Cleaning 🧪</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5>Advanced Data Cleaning Tools</h5>
+        </div>
+        <div class="card-body">
+            <p>This page provides advanced tools for data cleaning and transformation, including:</p>
+            <ul>
+                <li>Handling skewed distributions</li>
+                <li>Managing high cardinality categorical variables</li>
+                <li>Advanced missing value imputation</li>
+                <li>Outlier treatment and transformation</li>
+            </ul>
+            <p>These techniques help prepare your data for more accurate analysis and modeling.</p>
+        </div>
+    </div>
+
+    <!-- Data Preview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Data Preview</h5>
+        </div>
+        <div class="card-body">
+            <div id="data-preview">
+                <p>Loading data preview...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skewed Feature Transformation Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Transform Skewed Features</h5>
+        </div>
+        <div class="card-body">
+            <p>Skewed distributions can negatively affect statistical analyses and machine learning models. This tool helps identify and transform skewed numeric features to more normal distributions.</p>
+            
+            <div id="skewness-analysis">
+                <p>Loading skewness analysis...</p>
+            </div>
+            
+            <form id="transform-form" class="mt-4">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="skewness-threshold" class="form-label">Skewness threshold</label>
+                        <input type="range" class="form-range" id="skewness-threshold" min="0" max="3" step="0.1" value="1.0">
+                        <div class="text-center" id="threshold-value">1.0</div>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="transform-method" class="form-label">Transformation method</label>
+                        <select class="form-select" id="transform-method">
+                            <option value="yeo-johnson">Yeo-Johnson</option>
+                            <option value="log">Log</option>
+                            <option value="sqrt">Square Root</option>
+                            <option value="box-cox">Box-Cox</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label for="columns-to-transform" class="form-label">Select columns to transform</label>
+                        <select class="form-select" id="columns-to-transform" multiple>
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Apply Transformation</button>
+                </div>
+            </form>
+            
+            <div id="transformation-results" class="mt-4">
+                <!-- Results will be shown here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- High Cardinality Handling Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Handle High Cardinality</h5>
+        </div>
+        <div class="card-body">
+            <p>High cardinality categorical variables can cause issues in analysis and modeling. This tool helps manage them through various techniques.</p>
+            
+            <form id="cardinality-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="max-categories" class="form-label">Maximum categories</label>
+                        <input type="number" class="form-control" id="max-categories" min="2" max="50" value="10">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="cardinality-method" class="form-label">Handling method</label>
+                        <select class="form-select" id="cardinality-method">
+                            <option value="group_small">Group Small Categories</option>
+                            <option value="target_encoding">Target Encoding</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Apply Changes</button>
+                </div>
+            </form>
+            
+            <div id="cardinality-results" class="mt-4">
+                <!-- Results will be shown here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Advanced Imputation Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Advanced Imputation</h5>
+        </div>
+        <div class="card-body">
+            <p>Advanced techniques for handling missing values in your dataset.</p>
+            
+            <form id="imputation-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="imputation-strategy" class="form-label">Imputation strategy</label>
+                        <select class="form-select" id="imputation-strategy">
+                            <option value="knn">K-Nearest Neighbors</option>
+                            <option value="iterative">Iterative</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="n-neighbors" class="form-label">Number of neighbors (for KNN)</label>
+                        <input type="number" class="form-control" id="n-neighbors" min="1" max="20" value="5">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label for="columns-to-impute" class="form-label">Select columns to impute</label>
+                        <select class="form-select" id="columns-to-impute" multiple>
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Apply Imputation</button>
+                </div>
+            </form>
+            
+            <div id="imputation-results" class="mt-4">
+                <!-- Results will be shown here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Load data preview
+    function loadDataPreview() {
+        $.get('/api/data/preview', function(data) {
+            if (data.error) {
+                $('#data-preview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            const preview = data.data.slice(0, 5);
+            const columns = data.columns;
+            
+            let table = '<table class="table table-striped table-bordered"><thead><tr>';
+            columns.forEach(col => {
+                table += `<th>${col}</th>`;
+            });
+            table += '</tr></thead><tbody>';
+            
+            preview.forEach(row => {
+                table += '<tr>';
+                columns.forEach(col => {
+                    table += `<td>${row[col]}</td>`;
+                });
+                table += '</tr>';
+            });
+            
+            table += '</tbody></table>';
+            $('#data-preview').html(table);
+            
+            // Load skewness analysis
+            loadSkewnessAnalysis();
+        });
+    }
+    
+    // Load skewness analysis
+    function loadSkewnessAnalysis() {
+        $.get('/api/data/skewness', function(data) {
+            if (data.error) {
+                $('#skewness-analysis').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            let content = `
+                <h6>Skewness Analysis</h6>
+                <p><strong>Interpretation:</strong></p>
+                <ul>
+                    <li>|Skewness| < 0.5: Approximately symmetric</li>
+                    <li>0.5 < |Skewness| < 1: Moderately skewed</li>
+                    <li>|Skewness| > 1: Highly skewed</li>
+                </ul>
+                <div class="table-responsive">
+                    <table class="table table-striped table-bordered">
+                        <thead>
+                            <tr>
+                                <th>Column</th>
+                                <th>Skewness</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            data.skewness_data.forEach(item => {
+                content += `
+                    <tr>
+                        <td>${item.column}</td>
+                        <td>${item.skewness.toFixed(4)}</td>
+                    </tr>
+                `;
+            });
+            
+            content += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            $('#skewness-analysis').html(content);
+            
+            // Populate column selectors
+            populateColumnSelectors(data.columns);
+        });
+    }
+    
+    // Populate column selectors
+    function populateColumnSelectors(columns) {
+        // Transform columns
+        $('#columns-to-transform').empty();
+        columns.forEach(col => {
+            $('#columns-to-transform').append(`<option value="${col}">${col}</option>`);
+        });
+        
+        // Imputation columns
+        $('#columns-to-impute').empty();
+        columns.forEach(col => {
+            $('#columns-to-impute').append(`<option value="${col}">${col}</option>`);
+        });
+    }
+    
+    // Handle skewness threshold slider
+    $('#skewness-threshold').on('input', function() {
+        $('#threshold-value').text($(this).val());
+    });
+    
+    // Handle transform form submission
+    $('#transform-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            threshold: parseFloat($('#skewness-threshold').val()),
+            method: $('#transform-method').val(),
+            columns: $('#columns-to-transform').val()
+        };
+        
+        $.ajax({
+            url: '/api/data/transform',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#transformation-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let results = `
+                    <div class="alert alert-success">
+                        <h6>Transformation Results</h6>
+                        <p>Successfully transformed ${response.transformed_cols.length} columns:</p>
+                        <ul>
+                            ${response.transformed_cols.map(col => `<li>${col}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                $('#transformation-results').html(results);
+                
+                // Reload data preview and analysis
+                loadDataPreview();
+            },
+            error: function(xhr) {
+                $('#transformation-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Handle cardinality form submission
+    $('#cardinality-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            max_categories: parseInt($('#max-categories').val()),
+            method: $('#cardinality-method').val()
+        };
+        
+        $.ajax({
+            url: '/api/data/handle-cardinality',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#cardinality-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let results = `
+                    <div class="alert alert-success">
+                        <h6>Cardinality Handling Results</h6>
+                        <p>Successfully processed ${response.processed_cols.length} columns:</p>
+                        <ul>
+                            ${response.processed_cols.map(col => `<li>${col}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                $('#cardinality-results').html(results);
+                
+                // Reload data preview
+                loadDataPreview();
+            },
+            error: function(xhr) {
+                $('#cardinality-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Handle imputation form submission
+    $('#imputation-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            strategy: $('#imputation-strategy').val(),
+            n_neighbors: parseInt($('#n-neighbors').val()),
+            columns: $('#columns-to-impute').val()
+        };
+        
+        $.ajax({
+            url: '/api/data/impute',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#imputation-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let results = `
+                    <div class="alert alert-success">
+                        <h6>Imputation Results</h6>
+                        <p>Successfully imputed missing values in ${response.imputed_cols.length} columns:</p>
+                        <ul>
+                            ${response.imputed_cols.map(col => `<li>${col}</li>`).join('')}
+                        </ul>
+                    </div>
+                `;
+                
+                $('#imputation-results').html(results);
+                
+                // Reload data preview
+                loadDataPreview();
+            },
+            error: function(xhr) {
+                $('#imputation-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Initial load
+    loadDataPreview();
+});
+</script>
+
+<style>
+.operation-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+.metric-card {
+    background-color: #34495E;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.metric-card h6 {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.metric-card p {
+    font-size: 1.2em;
+    margin-bottom: 0;
+}
+</style>
+{% endblock %} 

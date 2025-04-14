@@ -1,0 +1,694 @@
+{% extends "base.html" %}
+
+{% block title %}Time Series Analysis{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<h1 class="main-header">Time Series Analysis 📈</h1>
+
+<div class="bg-primary-custom">
+    <h3>About Time Series Analysis</h3>
+    <p>Analyze time series data to uncover trends, seasonality, and generate forecasts using various methods. Select your date/time column and value column to begin.</p>
+</div>
+
+<div class="row">
+    <!-- Control Panel -->
+    <div class="col-md-4">
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h4 class="mb-0">Time Series Controls</h4>
+            </div>
+            <div class="card-body">
+                <div id="dataset-info" class="mb-4">
+                    <h5>Dataset Information</h5>
+                    <div id="loading-info" class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p>Loading dataset information...</p>
+                    </div>
+                    <div id="dataset-details" style="display: none;">
+                        <p><strong>Dataset:</strong> <span id="dataset-name">-</span></p>
+                        <p><strong>Rows:</strong> <span id="row-count">-</span></p>
+                        <p><strong>Columns:</strong> <span id="column-count">-</span></p>
+                    </div>
+                </div>
+                
+                <hr>
+                
+                <div id="datetime-conversion" class="mb-4" style="display: none;">
+                    <h5>Convert to Datetime</h5>
+                    <p class="text-warning">No datetime columns detected. Please convert a column to datetime format.</p>
+                    <form id="convert-datetime-form">
+                        <div class="mb-3">
+                            <label for="convert-column" class="form-label">Select Column</label>
+                            <select class="form-select" id="convert-column">
+                                <option value="">Select a column</option>
+                            </select>
+                        </div>
+                        <button type="button" id="convert-datetime-btn" class="btn btn-warning w-100">Convert to Datetime</button>
+                    </form>
+                </div>
+                
+                <form id="time-series-form">
+                    <div class="mb-3">
+                        <label for="date-column" class="form-label">Date/Time Column</label>
+                        <select class="form-select" id="date-column" name="date-column">
+                            <option value="">Select a column</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="value-column" class="form-label">Value Column</label>
+                        <select class="form-select" id="value-column" name="value-column">
+                            <option value="">Select a column</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="resampling-container" style="display: none;">
+                        <div class="form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" id="resample-data">
+                            <label class="form-check-label" for="resample-data">Resample Data</label>
+                        </div>
+                        
+                        <div id="resample-options" style="display: none;">
+                            <div class="mb-2">
+                                <label for="resample-freq" class="form-label">Frequency</label>
+                                <select class="form-select" id="resample-freq">
+                                    <option value="D">Daily</option>
+                                    <option value="W">Weekly</option>
+                                    <option value="M">Monthly</option>
+                                    <option value="Q">Quarterly</option>
+                                    <option value="Y">Yearly</option>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-2">
+                                <label for="agg-method" class="form-label">Aggregation Method</label>
+                                <select class="form-select" id="agg-method">
+                                    <option value="mean">Mean</option>
+                                    <option value="sum">Sum</option>
+                                    <option value="min">Min</option>
+                                    <option value="max">Max</option>
+                                    <option value="median">Median</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="button" id="generate-ts-plot" class="btn btn-primary w-100 mb-3">Generate Time Series Plot</button>
+                </form>
+                
+                <hr>
+                
+                <div id="decomposition-form" style="display: none;">
+                    <h5>Time Series Decomposition</h5>
+                    <div class="mb-3">
+                        <label for="seasonal-period" class="form-label">Seasonal Period</label>
+                        <select class="form-select" id="seasonal-period">
+                            <option value="auto">Auto Detect</option>
+                            <option value="7">Daily (7 days)</option>
+                            <option value="52">Weekly (52 weeks/year)</option>
+                            <option value="12">Monthly (12 months/year)</option>
+                            <option value="4">Quarterly (4 quarters/year)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="decomp-model" class="form-label">Decomposition Model</label>
+                        <select class="form-select" id="decomp-model">
+                            <option value="additive">Additive</option>
+                            <option value="multiplicative">Multiplicative</option>
+                        </select>
+                    </div>
+                    
+                    <button type="button" id="generate-decomposition" class="btn btn-success w-100">Decompose Time Series</button>
+                </div>
+                
+                <hr>
+                
+                <div id="forecast-form" style="display: none;">
+                    <h5>Time Series Forecasting</h5>
+                    <div class="mb-3">
+                        <label for="forecast-method" class="form-label">Forecasting Method</label>
+                        <select class="form-select" id="forecast-method">
+                            <option value="sma">Simple Moving Average</option>
+                            <option value="ema">Exponential Smoothing</option>
+                            <option value="linear">Linear Trend</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-3" id="sma-options">
+                        <label for="window-size" class="form-label">Window Size</label>
+                        <input type="number" class="form-control" id="window-size" min="2" max="20" value="3">
+                    </div>
+                    
+                    <div class="mb-3" id="ema-options" style="display: none;">
+                        <label for="alpha-value" class="form-label">Alpha (Smoothing Factor)</label>
+                        <input type="range" class="form-range" id="alpha-value" min="0" max="1" step="0.1" value="0.3">
+                        <div class="text-center" id="alpha-display">0.3</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="forecast-periods" class="form-label">Forecast Periods</label>
+                        <input type="number" class="form-control" id="forecast-periods" min="1" max="100" value="10">
+                    </div>
+                    
+                    <button type="button" id="generate-forecast" class="btn btn-warning w-100">Generate Forecast</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Analysis Area -->
+    <div class="col-md-8">
+        <div class="card mb-4">
+            <div class="card-header bg-info text-white">
+                <h4 class="mb-0" id="ts-plot-title">Time Series Plot</h4>
+            </div>
+            <div class="card-body">
+                <div id="ts-plot-loading" class="text-center" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Generating time series plot...</p>
+                </div>
+                <div id="ts-plot-placeholder" class="text-center py-5">
+                    <i class="bi bi-graph-up" style="font-size: 3rem; color: #ccc;"></i>
+                    <p class="mt-3 text-muted">Select a date/time column and value column, then click "Generate Time Series Plot"</p>
+                </div>
+                <div id="ts-plot-container" style="height: 400px; display: none;"></div>
+                <div id="ts-plot-error" class="alert alert-danger mt-3" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <div class="card mb-4" id="decomposition-card" style="display: none;">
+            <div class="card-header bg-success text-white">
+                <h4 class="mb-0">Time Series Decomposition</h4>
+            </div>
+            <div class="card-body">
+                <div id="decomp-loading" class="text-center" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Decomposing time series...</p>
+                </div>
+                <div id="decomp-container" style="height: 600px; display: none;"></div>
+                <div id="decomp-error" class="alert alert-danger mt-3" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <div class="card mb-4" id="forecast-card" style="display: none;">
+            <div class="card-header bg-warning text-dark">
+                <h4 class="mb-0">Time Series Forecast</h4>
+            </div>
+            <div class="card-body">
+                <div id="forecast-loading" class="text-center" style="display: none;">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p>Generating forecast...</p>
+                </div>
+                <div id="forecast-container" style="height: 400px; display: none;"></div>
+                <div id="forecast-error" class="alert alert-danger mt-3" style="display: none;"></div>
+                
+                <div id="forecast-details" class="mt-4" style="display: none;">
+                    <h5>Forecast Details</h5>
+                    <div id="forecast-metrics"></div>
+                    <div class="table-responsive mt-3">
+                        <table class="table table-sm table-hover" id="forecast-table">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Forecast Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="forecast-table-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let dataColumns = [];
+let dataTypes = {};
+let dateColumns = [];
+let numericColumns = [];
+let tsData = null;
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    // Load dataset information
+    loadDatasetInfo();
+    
+    // Setup event listeners
+    document.getElementById('convert-datetime-btn').addEventListener('click', convertToDatetime);
+    document.getElementById('generate-ts-plot').addEventListener('click', generateTimeSeriesPlot);
+    document.getElementById('generate-decomposition').addEventListener('click', generateDecomposition);
+    document.getElementById('generate-forecast').addEventListener('click', generateForecast);
+    document.getElementById('resample-data').addEventListener('change', toggleResampleOptions);
+    document.getElementById('forecast-method').addEventListener('change', toggleForecastOptions);
+    
+    // Alpha slider display
+    document.getElementById('alpha-value').addEventListener('input', function() {
+        document.getElementById('alpha-display').textContent = this.value;
+    });
+});
+
+function loadDatasetInfo() {
+    fetch('/api/ts/data/preview')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Update dataset info
+            document.getElementById('dataset-name').textContent = data.dataset_name;
+            document.getElementById('row-count').textContent = data.rows;
+            document.getElementById('column-count').textContent = data.columns.length;
+            
+            // Show dataset info
+            document.getElementById('loading-info').style.display = 'none';
+            document.getElementById('dataset-details').style.display = 'block';
+            
+            // Check for datetime columns
+            if (data.date_columns.length === 0) {
+                document.getElementById('datetime-conversion').style.display = 'block';
+                // Populate column selector for conversion
+                const convertSelect = document.getElementById('convert-column');
+                data.columns.forEach(col => {
+                    const option = document.createElement('option');
+                    option.value = col;
+                    option.textContent = col;
+                    convertSelect.appendChild(option);
+                });
+            }
+            
+            // Populate column selectors
+            const dateSelect = document.getElementById('date-column');
+            const valueSelect = document.getElementById('value-column');
+            
+            // Clear existing options
+            dateSelect.innerHTML = '<option value="">Select a column</option>';
+            valueSelect.innerHTML = '<option value="">Select a column</option>';
+            
+            // Add datetime columns to date selector
+            data.date_columns.forEach(col => {
+                const option = document.createElement('option');
+                option.value = col;
+                option.textContent = col;
+                dateSelect.appendChild(option);
+            });
+            
+            // Add numeric columns to value selector
+            data.numeric_columns.forEach(col => {
+                const option = document.createElement('option');
+                option.value = col;
+                option.textContent = col;
+                valueSelect.appendChild(option);
+            });
+            
+        })
+        .catch(error => {
+            console.error('Error loading dataset info:', error);
+            document.getElementById('loading-info').style.display = 'none';
+            document.getElementById('dataset-details').innerHTML = `
+                <div class="alert alert-danger">
+                    Error loading dataset information: ${error.message}
+                </div>
+            `;
+        });
+}
+
+function convertToDatetime() {
+    const column = document.getElementById('convert-column').value;
+    
+    if (!column) {
+        alert('Please select a column to convert');
+        return;
+    }
+    
+    // Show loading state
+    const btn = document.getElementById('convert-datetime-btn');
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Converting...';
+    
+    fetch('/api/ts/convert-datetime', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ column: column })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Reload dataset info
+        loadDatasetInfo();
+        
+        // Show success message
+        alert('Successfully converted column to datetime format');
+    })
+    .catch(error => {
+        console.error('Error converting to datetime:', error);
+        alert(`Error: ${error.message}`);
+    })
+    .finally(() => {
+        // Reset button
+        btn.disabled = false;
+        btn.textContent = originalText;
+    });
+}
+
+function generateTimeSeriesPlot() {
+    const dateColumn = document.getElementById('date-column').value;
+    const valueColumn = document.getElementById('value-column').value;
+    
+    if (!dateColumn || !valueColumn) {
+        alert('Please select both date/time and value columns');
+        return;
+    }
+    
+    // Show loading state
+    document.getElementById('ts-plot-loading').style.display = 'block';
+    document.getElementById('ts-plot-placeholder').style.display = 'none';
+    document.getElementById('ts-plot-container').style.display = 'none';
+    document.getElementById('ts-plot-error').style.display = 'none';
+    
+    // Prepare request data
+    const requestData = {
+        date_column: dateColumn,
+        value_column: valueColumn
+    };
+    
+    // Add resampling options if enabled
+    if (document.getElementById('resample-data').checked) {
+        requestData.resample = true;
+        requestData.freq = document.getElementById('resample-freq').value;
+        requestData.agg = document.getElementById('agg-method').value;
+    }
+    
+    fetch('/api/ts/plot', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(requestData)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Create plot
+        const trace = {
+            x: data.dates,
+            y: data.values,
+            type: 'scatter',
+            mode: 'lines',
+            name: valueColumn,
+            line: {
+                color: 'rgba(75, 192, 192, 1)',
+                width: 2
+            }
+        };
+        
+        const layout = {
+            title: `Time Series: ${valueColumn} over Time`,
+            xaxis: {
+                title: dateColumn,
+                tickangle: -45
+            },
+            yaxis: {
+                title: valueColumn
+            },
+            margin: { t: 50, b: 100 }
+        };
+        
+        Plotly.newPlot('ts-plot-container', [trace], layout);
+        
+        // Show plot and forms
+        document.getElementById('ts-plot-loading').style.display = 'none';
+        document.getElementById('ts-plot-container').style.display = 'block';
+        document.getElementById('decomposition-form').style.display = 'block';
+        document.getElementById('forecast-form').style.display = 'block';
+    })
+    .catch(error => {
+        console.error('Error generating plot:', error);
+        document.getElementById('ts-plot-loading').style.display = 'none';
+        document.getElementById('ts-plot-error').style.display = 'block';
+        document.getElementById('ts-plot-error').textContent = error.message;
+    });
+}
+
+function generateDecomposition() {
+    const dateColumn = document.getElementById('date-column').value;
+    const valueColumn = document.getElementById('value-column').value;
+    const period = document.getElementById('seasonal-period').value;
+    const model = document.getElementById('decomp-model').value;
+    
+    if (!dateColumn || !valueColumn) {
+        alert('Please generate a time series plot first');
+        return;
+    }
+    
+    // Show loading state
+    document.getElementById('decomp-loading').style.display = 'block';
+    document.getElementById('decomp-container').style.display = 'none';
+    document.getElementById('decomp-error').style.display = 'none';
+    document.getElementById('decomposition-card').style.display = 'block';
+    
+    fetch('/api/ts/decompose', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            date_column: dateColumn,
+            value_column: valueColumn,
+            period: period,
+            model: model
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Create subplots
+        const traces = [
+            {
+                x: data.dates,
+                y: data.observed,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Observed',
+                line: { color: 'blue' }
+            },
+            {
+                x: data.dates,
+                y: data.trend,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Trend',
+                line: { color: 'red' },
+                xaxis: 'x',
+                yaxis: 'y2'
+            },
+            {
+                x: data.dates,
+                y: data.seasonal,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Seasonal',
+                line: { color: 'green' },
+                xaxis: 'x',
+                yaxis: 'y3'
+            },
+            {
+                x: data.dates,
+                y: data.residual,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Residual',
+                line: { color: 'purple' },
+                xaxis: 'x',
+                yaxis: 'y4'
+            }
+        ];
+        
+        const layout = {
+            grid: {
+                rows: 4,
+                columns: 1,
+                pattern: 'independent',
+                roworder: 'top to bottom'
+            },
+            height: 800,
+            title: `Time Series Decomposition (${model})`,
+            xaxis: { domain: [0.1, 0.9] },
+            yaxis: { domain: [0.75, 0.9] },
+            yaxis2: { domain: [0.5, 0.65] },
+            yaxis3: { domain: [0.25, 0.4] },
+            yaxis4: { domain: [0, 0.15] }
+        };
+        
+        Plotly.newPlot('decomp-container', traces, layout);
+        
+        // Show results
+        document.getElementById('decomp-loading').style.display = 'none';
+        document.getElementById('decomp-container').style.display = 'block';
+    })
+    .catch(error => {
+        console.error('Error generating decomposition:', error);
+        document.getElementById('decomp-loading').style.display = 'none';
+        document.getElementById('decomp-error').style.display = 'block';
+        document.getElementById('decomp-error').textContent = error.message;
+    });
+}
+
+function generateForecast() {
+    const dateColumn = document.getElementById('date-column').value;
+    const valueColumn = document.getElementById('value-column').value;
+    const method = document.getElementById('forecast-method').value;
+    const periods = parseInt(document.getElementById('forecast-periods').value);
+    
+    if (!dateColumn || !valueColumn) {
+        alert('Please generate a time series plot first');
+        return;
+    }
+    
+    // Show loading state
+    document.getElementById('forecast-loading').style.display = 'block';
+    document.getElementById('forecast-container').style.display = 'none';
+    document.getElementById('forecast-error').style.display = 'none';
+    document.getElementById('forecast-details').style.display = 'none';
+    document.getElementById('forecast-card').style.display = 'block';
+    
+    // Get method-specific parameters
+    let params = {};
+    if (method === 'sma') {
+        params.window = parseInt(document.getElementById('window-size').value);
+    } else if (method === 'ema') {
+        params.alpha = parseFloat(document.getElementById('alpha-value').value);
+    }
+    
+    fetch('/api/ts/forecast', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            date_column: dateColumn,
+            value_column: valueColumn,
+            method: method,
+            periods: periods,
+            params: params
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Create plot
+        const traces = [
+            {
+                x: data.dates,
+                y: data.values,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Observed',
+                line: { color: 'blue' }
+            },
+            {
+                x: data.dates,
+                y: data.fitted,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Fitted',
+                line: { color: 'green', dash: 'dot' }
+            },
+            {
+                x: data.forecast_dates,
+                y: data.forecast,
+                type: 'scatter',
+                mode: 'lines',
+                name: 'Forecast',
+                line: { color: 'red', dash: 'dash' }
+            }
+        ];
+        
+        const layout = {
+            title: `Time Series Forecast (${method.toUpperCase()})`,
+            xaxis: {
+                title: dateColumn,
+                tickangle: -45
+            },
+            yaxis: {
+                title: valueColumn
+            },
+            margin: { t: 50, b: 100 }
+        };
+        
+        Plotly.newPlot('forecast-container', traces, layout);
+        
+        // Update forecast table
+        const tableBody = document.getElementById('forecast-table-body');
+        tableBody.innerHTML = '';
+        data.forecast_dates.forEach((date, i) => {
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${date}</td>
+                <td>${data.forecast[i].toFixed(2)}</td>
+            `;
+            tableBody.appendChild(row);
+        });
+        
+        // Show results
+        document.getElementById('forecast-loading').style.display = 'none';
+        document.getElementById('forecast-container').style.display = 'block';
+        document.getElementById('forecast-details').style.display = 'block';
+    })
+    .catch(error => {
+        console.error('Error generating forecast:', error);
+        document.getElementById('forecast-loading').style.display = 'none';
+        document.getElementById('forecast-error').style.display = 'block';
+        document.getElementById('forecast-error').textContent = error.message;
+    });
+}
+
+function toggleResampleOptions() {
+    const resampleChecked = document.getElementById('resample-data').checked;
+    document.getElementById('resample-options').style.display = resampleChecked ? 'block' : 'none';
+}
+
+function toggleForecastOptions() {
+    const forecastMethod = document.getElementById('forecast-method').value;
+    document.getElementById('sma-options').style.display = forecastMethod === 'sma' ? 'block' : 'none';
+    document.getElementById('ema-options').style.display = forecastMethod === 'ema' ? 'block' : 'none';
+}
+</script>
+{% endblock %} 

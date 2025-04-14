@@ -1,0 +1,457 @@
+{% extends 'base.html' %}
+
+{% block title %}Demand Forecasting{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <h1 class="mb-4">Demand Forecasting 📈</h1>
+    
+    <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+            <h5>Demand Forecasting Tools</h5>
+        </div>
+        <div class="card-body">
+            <p>This page provides demand forecasting tools to predict future values based on historical time series data. Choose from different forecasting algorithms and customize parameters to get the most accurate predictions.</p>
+        </div>
+    </div>
+
+    <!-- Data Preview Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Data Preview</h5>
+        </div>
+        <div class="card-body">
+            <div id="data-preview">
+                <p>Loading data preview...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Demand Forecasting Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Generate Demand Forecast</h5>
+        </div>
+        <div class="card-body">
+            <p>Generate forecasts for future demand based on historical time series data using various algorithms.</p>
+            
+            <form id="forecast-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="date-column" class="form-label">Select date/time column</label>
+                        <select class="form-select" id="date-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="demand-column" class="form-label">Select demand column</label>
+                        <select class="form-select" id="demand-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label for="forecast-periods" class="form-label">Number of periods to forecast</label>
+                        <input type="range" class="form-range" id="forecast-periods" min="1" max="365" value="30">
+                        <div class="text-center" id="forecast-periods-value">30</div>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="algorithm" class="form-label">Forecasting algorithm</label>
+                        <select class="form-select" id="algorithm">
+                            <option value="prophet">Prophet</option>
+                            <option value="arima">ARIMA</option>
+                            <option value="exponential">Exponential</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <label for="seasonality" class="form-label">Seasonality type</label>
+                        <select class="form-select" id="seasonality">
+                            <option value="auto">Auto</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="yearly">Yearly</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Generate Forecast</button>
+                </div>
+            </form>
+            
+            <div id="forecast-results" class="mt-4">
+                <!-- Results will be shown here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Forecast Accuracy Evaluation Section -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5>Forecast Accuracy Evaluation</h5>
+        </div>
+        <div class="card-body">
+            <p>If you have actual values and forecasts, evaluate the accuracy of your forecasts using various metrics.</p>
+            
+            <form id="accuracy-form">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="actual-column" class="form-label">Select actual values column</label>
+                        <select class="form-select" id="actual-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="forecast-column" class="form-label">Select forecast values column</label>
+                        <select class="form-select" id="forecast-column">
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label for="product-column" class="form-label">Select product/category column (optional)</label>
+                        <select class="form-select" id="product-column">
+                            <option value="">None</option>
+                            <!-- Columns will be populated by JavaScript -->
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="text-center">
+                    <button type="submit" class="btn btn-primary">Evaluate Accuracy</button>
+                </div>
+            </form>
+            
+            <div id="accuracy-results" class="mt-4">
+                <!-- Results will be shown here -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+$(document).ready(function() {
+    // Load data preview
+    function loadDataPreview() {
+        $.get('/api/data/preview', function(data) {
+            if (data.error) {
+                $('#data-preview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                return;
+            }
+            
+            const preview = data.data.slice(0, 5);
+            const columns = data.columns;
+            
+            let table = '<table class="table table-striped table-bordered"><thead><tr>';
+            columns.forEach(col => {
+                table += `<th>${col}</th>`;
+            });
+            table += '</tr></thead><tbody>';
+            
+            preview.forEach(row => {
+                table += '<tr>';
+                columns.forEach(col => {
+                    table += `<td>${row[col]}</td>`;
+                });
+                table += '</tr>';
+            });
+            
+            table += '</tbody></table>';
+            $('#data-preview').html(table);
+            
+            // Populate column selectors
+            populateColumnSelectors(columns);
+        });
+    }
+    
+    // Populate column selectors
+    function populateColumnSelectors(columns) {
+        // Date column
+        $('#date-column').empty();
+        columns.forEach(col => {
+            $('#date-column').append(`<option value="${col}">${col}</option>`);
+        });
+        
+        // Demand column (numeric columns)
+        $('#demand-column').empty();
+        columns.forEach(col => {
+            $('#demand-column').append(`<option value="${col}">${col}</option>`);
+        });
+        
+        // Actual and forecast columns (numeric columns)
+        $('#actual-column, #forecast-column').empty();
+        columns.forEach(col => {
+            $('#actual-column, #forecast-column').append(`<option value="${col}">${col}</option>`);
+        });
+        
+        // Product column (categorical columns)
+        $('#product-column').empty();
+        $('#product-column').append('<option value="">None</option>');
+        columns.forEach(col => {
+            $('#product-column').append(`<option value="${col}">${col}</option>`);
+        });
+    }
+    
+    // Handle forecast periods slider
+    $('#forecast-periods').on('input', function() {
+        $('#forecast-periods-value').text($(this).val());
+    });
+    
+    // Handle forecast form submission
+    $('#forecast-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            date_column: $('#date-column').val(),
+            demand_column: $('#demand-column').val(),
+            forecast_periods: parseInt($('#forecast-periods').val()),
+            algorithm: $('#algorithm').val(),
+            seasonality: $('#seasonality').val()
+        };
+        
+        $.ajax({
+            url: '/api/data/forecast',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#forecast-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let content = `
+                    <div class="alert alert-success">Forecast generated successfully!</div>
+                    
+                    <div class="row">
+                        <div class="col-md-12">
+                            <h6>Forecast Visualization</h6>
+                            <div id="forecast-chart"></div>
+                        </div>
+                    </div>
+                    
+                    <div class="row mt-4">
+                        <div class="col-md-12">
+                            <h6>Forecast Results</h6>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Date</th>
+                                            <th>Demand</th>
+                                            <th>Lower Bound</th>
+                                            <th>Upper Bound</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${response.forecast.map(row => `
+                                            <tr>
+                                                <td>${row.date}</td>
+                                                <td>${row.demand.toFixed(2)}</td>
+                                                <td>${row.demand_lower.toFixed(2)}</td>
+                                                <td>${row.demand_upper.toFixed(2)}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="text-center mt-3">
+                        <a href="/api/data/forecast/download" class="btn btn-secondary">Download Forecast CSV</a>
+                    </div>
+                `;
+                
+                $('#forecast-results').html(content);
+                
+                // Create forecast chart
+                const ctx = document.createElement('canvas');
+                $('#forecast-chart').append(ctx);
+                
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: response.forecast.map(row => row.date),
+                        datasets: [{
+                            label: 'Forecast',
+                            data: response.forecast.map(row => row.demand),
+                            borderColor: 'rgba(52, 152, 219, 1)',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            fill: true
+                        }, {
+                            label: 'Lower Bound',
+                            data: response.forecast.map(row => row.demand_lower),
+                            borderColor: 'rgba(52, 152, 219, 0.5)',
+                            borderDash: [5, 5],
+                            fill: false
+                        }, {
+                            label: 'Upper Bound',
+                            data: response.forecast.map(row => row.demand_upper),
+                            borderColor: 'rgba(52, 152, 219, 0.5)',
+                            borderDash: [5, 5],
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Date'
+                                }
+                            },
+                            y: {
+                                title: {
+                                    display: true,
+                                    text: 'Demand'
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+            error: function(xhr) {
+                $('#forecast-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Handle accuracy form submission
+    $('#accuracy-form').submit(function(e) {
+        e.preventDefault();
+        
+        const formData = {
+            actual_column: $('#actual-column').val(),
+            forecast_column: $('#forecast-column').val(),
+            product_column: $('#product-column').val() || null
+        };
+        
+        $.ajax({
+            url: '/api/data/forecast/accuracy',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(formData),
+            success: function(response) {
+                if (response.error) {
+                    $('#accuracy-results').html(`<div class="alert alert-warning">${response.error}</div>`);
+                    return;
+                }
+                
+                let content = `
+                    <div class="row">
+                        <div class="col-md-12">
+                            <h6>Accuracy Metrics</h6>
+                            <div class="table-responsive">
+                                <table class="table table-striped table-bordered">
+                                    <thead>
+                                        <tr>
+                                            <th>Metric</th>
+                                            <th>Value</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td>Mean Absolute Error (MAE)</td>
+                                            <td>${response.mae.toFixed(4)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Mean Squared Error (MSE)</td>
+                                            <td>${response.mse.toFixed(4)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Root Mean Squared Error (RMSE)</td>
+                                            <td>${response.rmse.toFixed(4)}</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Mean Absolute Percentage Error (MAPE)</td>
+                                            <td>${response.mape.toFixed(4)}%</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                if (response.by_product) {
+                    content += `
+                        <div class="row mt-4">
+                            <div class="col-md-12">
+                                <h6>Accuracy by Product/Category</h6>
+                                <div class="table-responsive">
+                                    <table class="table table-striped table-bordered">
+                                        <thead>
+                                            <tr>
+                                                <th>Product/Category</th>
+                                                <th>MAE</th>
+                                                <th>MSE</th>
+                                                <th>RMSE</th>
+                                                <th>MAPE</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${Object.entries(response.by_product).map(([product, metrics]) => `
+                                                <tr>
+                                                    <td>${product}</td>
+                                                    <td>${metrics.mae.toFixed(4)}</td>
+                                                    <td>${metrics.mse.toFixed(4)}</td>
+                                                    <td>${metrics.rmse.toFixed(4)}</td>
+                                                    <td>${metrics.mape.toFixed(4)}%</td>
+                                                </tr>
+                                            `).join('')}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                $('#accuracy-results').html(content);
+            },
+            error: function(xhr) {
+                $('#accuracy-results').html(`<div class="alert alert-danger">Error: ${xhr.responseJSON.error}</div>`);
+            }
+        });
+    });
+    
+    // Initial load
+    loadDataPreview();
+});
+</script>
+
+<style>
+.operation-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+}
+
+.metric-card {
+    background-color: #34495E;
+    color: white;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+.metric-card h6 {
+    margin-bottom: 10px;
+    font-weight: bold;
+}
+
+.metric-card p {
+    font-size: 1.2em;
+    margin-bottom: 0;
+}
+</style>
+{% endblock %} 

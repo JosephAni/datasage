@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Safety Stock Simulation</h2>
+    
+    <!-- How to Use Section -->
+    <div class="card mb-4">
+        <div class="card-header bg-info text-white">
+            <h5 class="mb-0">
+                <i class="fas fa-info-circle"></i> How to Use
+            </h5>
+        </div>
+        <div class="card-body">
+            <h6 class="fw-bold">Understanding Safety Stock</h6>
+            <p>Safety stock is extra inventory carried to mitigate risk of stockouts due to demand variability and lead time uncertainty.</p>
+            
+            <h6 class="fw-bold mt-3">Input Parameters Explained:</h6>
+            <ul>
+                <li><strong>Annual Demand:</strong> Total yearly demand for the product (units/year)</li>
+                <li><strong>Unit Cost:</strong> Cost per unit of inventory ($)</li>
+                <li><strong>Holding Cost (%):</strong> Annual cost of holding inventory as a percentage of unit cost</li>
+                <li><strong>Order Cost:</strong> Fixed cost per order ($)</li>
+                <li><strong>Lead Time:</strong> Time between placing and receiving an order (days)</li>
+                <li><strong>Service Level:</strong> Desired probability of not stocking out (e.g., 95% = 95% chance of meeting demand)</li>
+            </ul>
+
+            <h6 class="fw-bold mt-3">Output Metrics:</h6>
+            <ul>
+                <li><strong>EOQ (Economic Order Quantity):</strong> Optimal order quantity that minimizes total costs</li>
+                <li><strong>Safety Stock:</strong> Extra inventory to protect against variability</li>
+                <li><strong>Reorder Point:</strong> Inventory level at which to place a new order</li>
+                <li><strong>Average Inventory:</strong> Expected average inventory level</li>
+                <li><strong>Costs:</strong> Breakdown of holding and ordering costs</li>
+            </ul>
+
+            <h6 class="fw-bold mt-3">Steps to Use:</h6>
+            <ol>
+                <li>Enter your product's annual demand and unit cost</li>
+                <li>Specify your holding cost rate (typically 20-30%)</li>
+                <li>Enter the fixed cost per order</li>
+                <li>Input the lead time for receiving orders</li>
+                <li>Set your desired service level (typically 90-99%)</li>
+                <li>Click "Calculate" to see results</li>
+                <li>Review the inventory pattern chart to visualize the system</li>
+            </ol>
+
+            <h6 class="fw-bold mt-3">Tips for Optimization:</h6>
+            <ul>
+                <li>Higher service levels increase safety stock but reduce stockout risk</li>
+                <li>Longer lead times require more safety stock</li>
+                <li>Higher demand variability needs more safety stock</li>
+                <li>Balance holding costs against stockout costs</li>
+            </ul>
+
+            <div class="alert alert-info mt-3">
+                <i class="fas fa-lightbulb"></i> <strong>Pro Tip:</strong> Start with a 95% service level and adjust based on your actual stockout costs and customer service requirements.
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <!-- Input Parameters -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <form id="simulation-form">
+                        <div class="mb-3">
+                            <label for="service-level" class="form-label">Cycle Service Level %</label>
+                            <input type="number" class="form-control" id="service-level" value="95" min="0" max="100" step="0.1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="sigma" class="form-label">sigma</label>
+                            <input type="number" class="form-control" id="sigma" value="4" min="0" step="0.1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="lead-time" class="form-label">Lead Time</label>
+                            <input type="number" class="form-control" id="lead-time" value="1" min="0" step="0.1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="expected-demand" class="form-label">Expected Demand</label>
+                            <input type="number" class="form-control" id="expected-demand" value="70" min="0" step="1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="unit-profit" class="form-label">Unit Profit</label>
+                            <input type="number" class="form-control" id="unit-profit" value="10" min="0" step="0.1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="holding-rate" class="form-label">Unit Holding Cost</label>
+                            <input type="number" class="form-control" id="holding-rate" value="0.1" min="0" step="0.01">
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Results -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Safety Stock</th>
+                                    <th>z</th>
+                                    <th>sigma</th>
+                                    <th>Sqrt(Lead Time)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td id="safety-stock">-</td>
+                                    <td id="z-score">-</td>
+                                    <td id="sigma-value">-</td>
+                                    <td id="sqrt-lead-time">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="d-flex align-items-center mt-3">
+                        <button class="btn btn-primary" id="simulate-btn">SIMULATE</button>
+                        <div class="ms-3 d-flex align-items-center">
+                            <label for="weeks" class="me-2"># weeks</label>
+                            <input type="number" id="weeks" value="100" min="1" max="1000" class="form-control" style="width: 100px;">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Stock Outs</th>
+                                    <th>Lost Units</th>
+                                    <th>Lost Profit</th>
+                                    <th>Avg Excess</th>
+                                    <th>Holding Cost</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="simulation-results">
+                                <tr>
+                                    <td colspan="6" class="text-center">Run simulation to see results</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Update safety stock calculations when parameters change
+    const form = document.getElementById('simulation-form');
+    form.querySelectorAll('input').forEach(input => {
+        input.addEventListener('change', updateSafetyStock);
+    });
+    
+    // Simulate button click handler
+    document.getElementById('simulate-btn').addEventListener('click', runSimulation);
+    
+    // Initial calculation
+    updateSafetyStock();
+});
+
+function updateSafetyStock() {
+    const serviceLevel = parseFloat(document.getElementById('service-level').value) / 100;
+    const sigma = parseFloat(document.getElementById('sigma').value);
+    const leadTime = parseFloat(document.getElementById('lead-time').value);
+    
+    // Calculate z-score using inverse normal distribution approximation
+    const z = calculateZScore(serviceLevel);
+    
+    // Calculate safety stock
+    const sqrtLeadTime = Math.sqrt(leadTime);
+    const safetyStock = z * sigma * sqrtLeadTime;
+    
+    // Update display
+    document.getElementById('safety-stock').textContent = safetyStock.toFixed(1);
+    document.getElementById('z-score').textContent = z.toFixed(2);
+    document.getElementById('sigma-value').textContent = sigma.toFixed(2);
+    document.getElementById('sqrt-lead-time').textContent = sqrtLeadTime.toFixed(2);
+}
+
+function calculateZScore(p) {
+    // Approximation of inverse normal distribution
+    if (p < 0.5) return -calculateZScore(1 - p);
+    
+    const a1 = -39.6968302866538;
+    const a2 = 220.946098424521;
+    const a3 = -275.928510446969;
+    const a4 = 138.357751867269;
+    const a5 = -30.6647980661472;
+    const a6 = 2.50662827745924;
+    
+    const b1 = -54.4760987982241;
+    const b2 = 161.585836858041;
+    const b3 = -155.698979859887;
+    const b4 = 66.8013118877197;
+    const b5 = -13.2806815528857;
+    
+    const c1 = -7.78489400243029E-03;
+    const c2 = -0.322396458041136;
+    const c3 = -2.40075827716184;
+    const c4 = -2.54973253934373;
+    const c5 = 4.37466414146497;
+    const c6 = 2.93816398269878;
+    
+    const d1 = 7.78469570904146E-03;
+    const d2 = 0.32246712907004;
+    const d3 = 2.445134137143;
+    const d4 = 3.75440866190742;
+    
+    const p_low = 0.02425;
+    const p_high = 1 - p_low;
+    
+    let z;
+    if (p < p_low) {
+        const q = Math.sqrt(-2 * Math.log(p));
+        z = (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+    } else if (p <= p_high) {
+        const q = p - 0.5;
+        const r = q * q;
+        z = (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
+    } else {
+        const q = Math.sqrt(-2 * Math.log(1 - p));
+        z = -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+    }
+    
+    return z;
+}
+
+function runSimulation() {
+    const params = {
+        service_level: parseFloat(document.getElementById('service-level').value),
+        sigma: parseFloat(document.getElementById('sigma').value),
+        lead_time: parseFloat(document.getElementById('lead-time').value),
+        expected_demand: parseFloat(document.getElementById('expected-demand').value),
+        unit_profit: parseFloat(document.getElementById('unit-profit').value),
+        holding_rate: parseFloat(document.getElementById('holding-rate').value),
+        weeks: parseInt(document.getElementById('weeks').value)
+    };
+    
+    fetch('/api/safety-stock/simulate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(params)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Update results table
+        const tbody = document.getElementById('simulation-results');
+        tbody.innerHTML = `
+            <tr>
+                <td>${data.stock_outs}</td>
+                <td>${data.lost_units}</td>
+                <td>$${data.lost_profit.toFixed(2)}</td>
+                <td>${data.avg_excess.toFixed(1)}</td>
+                <td>$${data.holding_cost.toFixed(2)}</td>
+                <td class="${data.action === 'Raise Service' ? 'text-success' : 'text-warning'} fw-bold">${data.action}</td>
+            </tr>
+        `;
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        alert('Error running simulation: ' + error.message);
+    });
+}
+</script>
+{% endblock %} 

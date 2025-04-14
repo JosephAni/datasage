@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Inventory Analysis</h2>
+    
+    <div class="row">
+        <!-- Input Parameters -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Parameters</h5>
+                </div>
+                <div class="card-body">
+                    <form id="inventory-form">
+                        <div class="mb-3">
+                            <label for="annual-demand" class="form-label">Annual Demand</label>
+                            <input type="number" class="form-control" id="annual-demand" value="1000" min="0" step="1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="unit-cost" class="form-label">Unit Cost</label>
+                            <input type="number" class="form-control" id="unit-cost" value="10" min="0" step="0.01">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="holding-cost" class="form-label">Holding Cost (%)</label>
+                            <input type="number" class="form-control" id="holding-cost" value="20" min="0" max="100" step="0.1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="order-cost" class="form-label">Order Cost</label>
+                            <input type="number" class="form-control" id="order-cost" value="100" min="0" step="0.01">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="lead-time" class="form-label">Lead Time (days)</label>
+                            <input type="number" class="form-control" id="lead-time" value="7" min="0" step="1">
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="service-level" class="form-label">Service Level (%)</label>
+                            <input type="number" class="form-control" id="service-level" value="95" min="0" max="100" step="0.1">
+                        </div>
+                        
+                        <button type="button" class="btn btn-primary" id="calculate-btn">Calculate</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Results -->
+        <div class="col-md-8">
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0">Inventory Analysis Results</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody id="results-table">
+                                <tr>
+                                    <td>Economic Order Quantity (EOQ)</td>
+                                    <td id="eoq">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Reorder Point (ROP)</td>
+                                    <td id="rop">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Safety Stock</td>
+                                    <td id="safety-stock">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Average Inventory</td>
+                                    <td id="avg-inventory">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Annual Holding Cost</td>
+                                    <td id="annual-holding-cost">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Annual Order Cost</td>
+                                    <td id="annual-order-cost">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Total Annual Cost</td>
+                                    <td id="total-annual-cost">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="mb-0">Inventory Pattern</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="inventory-chart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calculateBtn = document.getElementById('calculate-btn');
+    let inventoryChart = null;
+    
+    calculateBtn.addEventListener('click', calculateInventory);
+    
+    function calculateInventory() {
+        const params = {
+            annual_demand: parseFloat(document.getElementById('annual-demand').value),
+            unit_cost: parseFloat(document.getElementById('unit-cost').value),
+            holding_cost: parseFloat(document.getElementById('holding-cost').value),
+            order_cost: parseFloat(document.getElementById('order-cost').value),
+            lead_time: parseFloat(document.getElementById('lead-time').value),
+            service_level: parseFloat(document.getElementById('service-level').value)
+        };
+        
+        fetch('/api/inventory/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(params)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Update results
+            document.getElementById('eoq').textContent = data.eoq.toFixed(2);
+            document.getElementById('rop').textContent = data.rop.toFixed(2);
+            document.getElementById('safety-stock').textContent = data.safety_stock.toFixed(2);
+            document.getElementById('avg-inventory').textContent = data.avg_inventory.toFixed(2);
+            document.getElementById('annual-holding-cost').textContent = `$${data.annual_holding_cost.toFixed(2)}`;
+            document.getElementById('annual-order-cost').textContent = `$${data.annual_order_cost.toFixed(2)}`;
+            document.getElementById('total-annual-cost').textContent = `$${data.total_annual_cost.toFixed(2)}`;
+            
+            // Update chart
+            updateChart(data.inventory_pattern);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error calculating inventory metrics: ' + error.message);
+        });
+    }
+    
+    function updateChart(pattern) {
+        const ctx = document.getElementById('inventory-chart').getContext('2d');
+        
+        if (inventoryChart) {
+            inventoryChart.destroy();
+        }
+        
+        inventoryChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: pattern.time_points,
+                datasets: [{
+                    label: 'Inventory Level',
+                    data: pattern.inventory_levels,
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Inventory Level'
+                        }
+                    },
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Time (days)'
+                        }
+                    }
+                }
+            }
+        });
+    }
+});
+</script>
+{% endblock %} 

@@ -61,6 +61,69 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Add loading indicator for file uploads
+    const uploadForm = document.querySelector('form[action="/upload"]');
+    if (uploadForm) {
+        uploadForm.addEventListener('submit', function() {
+            showLoading('Uploading and processing file...');
+        });
+    }
+    
+    // Add loading indicator for sample data loading
+    const sampleLink = document.querySelector('a[href="/sample"]');
+    if (sampleLink) {
+        sampleLink.addEventListener('click', function() {
+            showLoading('Loading sample data...');
+        });
+    }
+    
+    // Add AJAX error handler to display error messages
+    $(document).ajaxError(function(event, jqXHR, settings, thrownError) {
+        hideLoading();
+        // Display error message
+        const message = jqXHR.responseJSON && jqXHR.responseJSON.error 
+            ? jqXHR.responseJSON.error 
+            : 'An error occurred while processing your request.';
+            
+        // Create an alert to display the error
+        const alertDiv = document.createElement('div');
+        alertDiv.className = 'alert alert-danger alert-dismissible fade show';
+        alertDiv.setAttribute('role', 'alert');
+        alertDiv.innerHTML = `
+            <strong>Error:</strong> ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        
+        // Find a good place to show the alert - typically at the top of the content
+        const content = document.querySelector('#content');
+        if (content && content.firstChild) {
+            content.insertBefore(alertDiv, content.firstChild);
+        } else {
+            // Fallback - add to body
+            document.body.insertBefore(alertDiv, document.body.firstChild);
+        }
+    });
+    
+    // Handle AJAX requests with loading indicators
+    $(document).ajaxSend(function(event, jqXHR, settings) {
+        if (settings.url.includes('/api/data_preview')) {
+            showLoading('Loading data preview...');
+        } else if (settings.url.includes('/api/clean_data')) {
+            showLoading('Cleaning data...');
+        } else if (settings.url.includes('/api/convert_types')) {
+            showLoading('Converting data types...');
+        } else if (settings.url.includes('/api/ml/')) {
+            showLoading('Processing machine learning request...');
+        }
+    });
+    
+    $(document).ajaxComplete(function(event, jqXHR, settings) {
+        hideLoading();
+    });
+
+    // Add any initialization code here
+    console.log('Inventory Optimization app initialized');
 });
 
 // Utility function to format currency
@@ -147,4 +210,101 @@ function downloadCSV(data, filename = 'data.csv') {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-} 
+}
+
+// Show loading indicator
+function showLoading(message = "Loading data...") {
+    // Create loading overlay if it doesn't exist
+    if (!document.getElementById('loading-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.id = 'loading-overlay';
+        overlay.style.position = 'fixed';
+        overlay.style.top = '0';
+        overlay.style.left = '0';
+        overlay.style.width = '100%';
+        overlay.style.height = '100%';
+        overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        overlay.style.display = 'flex';
+        overlay.style.justifyContent = 'center';
+        overlay.style.alignItems = 'center';
+        overlay.style.zIndex = '9999';
+        
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner-border text-light';
+        spinner.setAttribute('role', 'status');
+        
+        const loadingText = document.createElement('div');
+        loadingText.id = 'loading-text';
+        loadingText.className = 'ms-3 text-light';
+        loadingText.textContent = message;
+        
+        const content = document.createElement('div');
+        content.className = 'd-flex align-items-center';
+        content.appendChild(spinner);
+        content.appendChild(loadingText);
+        
+        overlay.appendChild(content);
+        document.body.appendChild(overlay);
+    } else {
+        document.getElementById('loading-text').textContent = message;
+        document.getElementById('loading-overlay').style.display = 'flex';
+    }
+}
+
+// Hide loading indicator
+function hideLoading() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.style.display = 'none';
+    }
+}
+
+$(document).ready(function() {
+    // Sidebar toggle
+    $('#sidebarCollapse').on('click', function() {
+        $('#sidebar').toggleClass('active');
+        $('#content').toggleClass('active');
+        $(this).toggleClass('active');
+        
+        // Update toggle button text based on sidebar state
+        if ($('#sidebar').hasClass('active')) {
+            $(this).find('span').text('Show Sidebar');
+        } else {
+            $(this).find('span').text('Hide Sidebar');
+        }
+    });
+
+    // Handle dropdown toggles
+    $('.dropdown-toggle').on('click', function(e) {
+        e.preventDefault();
+        $(this).parent().find('.collapse').collapse('toggle');
+    });
+
+    // Close other dropdowns when opening a new one
+    $('.collapse').on('show.bs.collapse', function() {
+        $('.collapse.show').not(this).collapse('hide');
+    });
+
+    // Add active class to current page
+    var currentLocation = window.location.pathname;
+    $('.nav-link').each(function() {
+        var link = $(this).attr('href');
+        if (currentLocation === link) {
+            $(this).addClass('active');
+            // If this is inside a dropdown, expand the dropdown
+            var dropdown = $(this).closest('.collapse');
+            if (dropdown.length) {
+                dropdown.addClass('show');
+                dropdown.prev('.dropdown-toggle').addClass('active');
+            }
+        }
+    });
+    
+    // On small screens, start with sidebar collapsed
+    if ($(window).width() < 768) {
+        $('#sidebar').addClass('active');
+        $('#content').addClass('active');
+        $('#sidebarCollapse').addClass('active');
+        $('#sidebarCollapse').find('span').text('Show Sidebar');
+    }
+}); 

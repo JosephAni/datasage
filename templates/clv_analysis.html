@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+
+{% block title %}Customer Lifetime Value Analysis{% endblock %}
+
+{% block extra_head %}
+<script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Customer Lifetime Value Analysis</h2>
+    
+        <div class="card mb-4">
+        <div class="card-header">
+            Dataset Information
+        </div>
+        <div class="card-body" id="dataset-info">
+            <div class="alert alert-info" role="alert">
+                Loading dataset information...
+            </div>
+        </div>
+    </div>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            CLV Analysis Configuration
+            </div>
+            <div class="card-body">
+            <form id="clv-form">
+                <div class="row">
+                    <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="customer-id-col">Customer ID Column</label>
+                            <select class="form-control" id="customer-id-col" required>
+                                <option value="">Loading columns...</option>
+                            </select>
+                        </div>
+                    </div>
+                        <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="date-col">Date Column</label>
+                            <select class="form-control" id="date-col" required>
+                                <option value="">Loading columns...</option>
+                            </select>
+                        </div>
+                        </div>
+                        <div class="col-md-4">
+                        <div class="form-group">
+                            <label for="amount-col">Amount Column</label>
+                            <select class="form-control" id="amount-col" required>
+                                <option value="">Loading columns...</option>
+                            </select>
+                </div>
+            </div>
+        </div>
+        
+                <div class="mt-3">
+                    <button type="submit" class="btn btn-primary" id="calculate-clv">Calculate CLV</button>
+            </div>
+            </form>
+        </div>
+    </div>
+    
+    <div id="results" style="display: none;">
+        <!-- Results will be populated here -->
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Listen for data state updates
+    document.addEventListener('dataStateUpdated', updateUI);
+    
+    // Initial UI update if data is already loaded
+    if (DataState.isLoaded) {
+        updateUI();
+    }
+    
+    // Form submission
+    document.getElementById('clv-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        await calculateCLV();
+    });
+});
+
+async function updateUI() {
+    if (!DataState.isLoaded) {
+        showError('No dataset loaded. Please upload a dataset first.');
+        return;
+    }
+    
+    // Update dataset info
+    const infoHtml = `
+        <p><strong>Filename:</strong> ${DataState.metadata.filename}</p>
+        <p><strong>Rows:</strong> ${DataState.metadata.row_count}</p>
+        <p><strong>Columns:</strong> ${DataState.metadata.column_count}</p>
+        <p><strong>Last Updated:</strong> ${new Date(DataState.metadata.last_updated).toLocaleString()}</p>
+    `;
+    document.getElementById('dataset-info').innerHTML = infoHtml;
+    
+    // Update column selectors
+    const columns = Object.keys(DataState.columnTypes);
+    updateColumnSelectors(columns);
+}
+
+function updateColumnSelectors(columns) {
+    const selectors = ['customer-id-col', 'date-col', 'amount-col'];
+    selectors.forEach(id => {
+        const select = document.getElementById(id);
+        select.innerHTML = '<option value="">Select column...</option>';
+        columns.forEach(col => {
+            const option = document.createElement('option');
+            option.value = col;
+            option.textContent = `${col} (${DataState.columnTypes[col]})`;
+            select.appendChild(option);
+        });
+    });
+}
+
+async function calculateCLV() {
+    const customerIdCol = document.getElementById('customer-id-col').value;
+    const dateCol = document.getElementById('date-col').value;
+    const amountCol = document.getElementById('amount-col').value;
+    
+    if (!customerIdCol || !dateCol || !amountCol) {
+        showError('Please select all required columns');
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/clv/calculate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                customer_id_col: customerIdCol,
+                date_col: dateCol,
+                amount_col: amountCol
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error('Failed to calculate CLV');
+        }
+        
+        const results = await response.json();
+        displayResults(results);
+    } catch (error) {
+        showError('Error calculating CLV: ' + error.message);
+    }
+}
+
+function displayResults(results) {
+    const resultsDiv = document.getElementById('results');
+    resultsDiv.style.display = 'block';
+    
+    // Implementation of results display...
+    // This will be customized based on the actual CLV calculation results
+}
+
+function showError(message) {
+    const datasetInfo = document.getElementById('dataset-info');
+    datasetInfo.innerHTML = `
+        <div class="alert alert-danger" role="alert">
+            ${message}
+        </div>
+    `;
+}
+</script>
+{% endblock %} 
