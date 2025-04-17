@@ -255,32 +255,34 @@ function runSimulation() {
         holding_rate: parseFloat(document.getElementById('holding-rate').value),
         weeks: parseInt(document.getElementById('weeks').value)
     };
-    
+
     fetch('/api/safety-stock/simulate', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
         },
         body: JSON.stringify(params)
     })
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            throw new Error(data.error);
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Network response was not ok');
         }
-        
+        return response.json();
+    })
+    .then(data => {
         // Update results table
-        const tbody = document.getElementById('simulation-results');
-        tbody.innerHTML = `
+        const resultsHtml = `
             <tr>
                 <td>${data.stock_outs}</td>
                 <td>${data.lost_units}</td>
                 <td>$${data.lost_profit.toFixed(2)}</td>
-                <td>${data.avg_excess.toFixed(1)}</td>
+                <td>${data.avg_excess.toFixed(2)}</td>
                 <td>$${data.holding_cost.toFixed(2)}</td>
-                <td class="${data.action === 'Raise Service' ? 'text-success' : 'text-warning'} fw-bold">${data.action}</td>
+                <td>${data.action}</td>
             </tr>
         `;
+        document.getElementById('simulation-results').innerHTML = resultsHtml;
     })
     .catch(error => {
         console.error('Error:', error);

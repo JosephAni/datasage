@@ -14,7 +14,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_session import Session
 from statsmodels.tsa.seasonal import seasonal_decompose
 from sklearn.linear_model import LinearRegression
-from flask_wtf.csrf import CSRFProtect
+from flask_wtf.csrf import CSRFProtect, generate_csrf
 from dotenv import load_dotenv
 
 # Import scikit-learn modules
@@ -48,23 +48,40 @@ load_dotenv()
 
 # Create Flask app
 app = Flask(__name__)
+
+# Basic configuration
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'your-secret-key-here')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'sqlite:///inventory.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
 
 # Configure server-side sessions
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_FILE_DIR'] = os.path.join(tempfile.gettempdir(), 'flask_session')
-app.config['SESSION_PERMANENT'] = True
-app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=7)
-app.config['SESSION_USE_SIGNER'] = True
+app.config.update(
+    SESSION_TYPE='filesystem',
+    SESSION_FILE_DIR=os.path.join(tempfile.gettempdir(), 'flask_session'),
+    SESSION_PERMANENT=True,
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=7),
+    SESSION_USE_SIGNER=False,  # Set to False to avoid bytes/string type issues
+    SESSION_COOKIE_SECURE=False,  # Set to False for local development
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_NAME='inventory_session'  # Set session cookie name here
+)
+
+# Initialize Session before other extensions
 Session(app)
 
-# Initialize database
+# Configure CSRF protection
+app.config['WTF_CSRF_ENABLED'] = True
+app.config['WTF_CSRF_TIME_LIMIT'] = None  # No time limit for CSRF tokens
+app.config['WTF_CSRF_SSL_STRICT'] = False  # Allow CSRF tokens over HTTP during development
+app.config['WTF_CSRF_CHECK_DEFAULT'] = False  # Disable automatic checking to handle it explicitly where needed
+
+# Initialize extensions
 db = SQLAlchemy(app)
 csrf = CSRFProtect(app)
 
-# Create upload folder if it doesn't exist
+# Create required directories
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
@@ -116,55 +133,56 @@ def load_sample_data():
 
 def get_session_data():
     """Get dataframe from current session with performance optimization"""
-    # Get filepath from session
-    filepath = session.get('filepath')
-    
-    # Check if filepath exists
-    if not filepath or not os.path.exists(filepath):
-        # Check if we have saved cleaned data
-        cleaned_filepath = session.get('cleaned_filepath')
-        if cleaned_filepath and os.path.exists(cleaned_filepath):
-            filepath = cleaned_filepath
-        else:
-            # Try to find most recent file for this session from database
-            try:
-                session_id = get_session_id()
-                latest_file = ProcessedFile.query.filter_by(session_id=session_id).order_by(ProcessedFile.date_processed.desc()).first()
-                
-                if not latest_file:
-                    latest_file = UploadedFile.query.filter_by(session_id=session_id).order_by(UploadedFile.date_uploaded.desc()).first()
-                
-                if latest_file:
-                    filepath = latest_file.filepath
-                    session['filepath'] = filepath
-                    session['filename'] = latest_file.filename
-                else:
-                    return None
-            except Exception as e:
-                print(f"Database error: {str(e)}")
-                return None
-    
     try:
-        # Optimize loading for large files
-        if filepath.endswith('.csv'):
-            # First check file size and only read a sample if it's large
-            file_size = os.path.getsize(filepath)
-            if file_size > 50 * 1024 * 1024:  # 50MB
-                # For large files, read with chunksize first to get schema
-                chunks = pd.read_csv(filepath, nrows=1000)
-                return chunks
-            else:
-                df = pd.read_csv(filepath)
-        elif filepath.endswith(('.xls', '.xlsx')):
-            df = pd.read_excel(filepath)
-        elif filepath.endswith('.json'):
-            df = pd.read_json(filepath)
-        else:
-            return None
+        # Get filepath from session, with a default of None
+        filepath = session.get('filepath', None)
         
-        return df
+        # Check if filepath exists and is valid
+        if not filepath or not isinstance(filepath, str) or not os.path.exists(filepath):
+            # Try cleaned filepath
+            cleaned_filepath = session.get('cleaned_filepath', None)
+            if cleaned_filepath and isinstance(cleaned_filepath, str) and os.path.exists(cleaned_filepath):
+                filepath = cleaned_filepath
+            else:
+                # Try to find most recent file for this session from database
+                try:
+                    session_id = get_session_id()
+                    latest_file = ProcessedFile.query.filter_by(session_id=session_id).order_by(ProcessedFile.date_processed.desc()).first()
+                    
+                    if not latest_file:
+                        latest_file = UploadedFile.query.filter_by(session_id=session_id).order_by(UploadedFile.date_uploaded.desc()).first()
+                    
+                    if latest_file and os.path.exists(latest_file.filepath):
+                        filepath = latest_file.filepath
+                        session['filepath'] = filepath
+                        session['filename'] = latest_file.filename
+                    else:
+                        return None
+                except Exception as e:
+                    print(f"Database error in get_session_data: {str(e)}")
+                    return None
+        
+        # Load and return the data
+        try:
+            if filepath.endswith('.csv'):
+                # Check file size
+                file_size = os.path.getsize(filepath)
+                if file_size > 50 * 1024 * 1024:  # 50MB
+                    return pd.read_csv(filepath, nrows=1000)
+                return pd.read_csv(filepath)
+            elif filepath.endswith(('.xls', '.xlsx')):
+                return pd.read_excel(filepath)
+            elif filepath.endswith('.json'):
+                return pd.read_json(filepath)
+            else:
+                print(f"Unsupported file type for {filepath}")
+                return None
+        except Exception as e:
+            print(f"Error loading data file {filepath}: {str(e)}")
+            return None
+            
     except Exception as e:
-        print(f"Error loading data: {str(e)}")
+        print(f"Session error in get_session_data: {str(e)}")
         return None
 
 def apply_cleaning(df, cleaning_actions):
@@ -279,7 +297,7 @@ def apply_cleaning(df, cleaning_actions):
 # Routes
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return render_template('home.html')
 
 @app.route('/upload', methods=['GET', 'POST'])
 def upload():
@@ -294,175 +312,272 @@ def upload():
             return redirect(request.url)
         
         if file:
-            # Save file temporarily
-            temp_dir = tempfile.mkdtemp()
-            temp_path = os.path.join(temp_dir, secure_filename(file.filename))
-            file.save(temp_path)
-            
-            # Load data using DataManager
-            if data_manager.load_data(temp_path, file.filename):
-                flash('Data loaded successfully', 'success')
-                os.remove(temp_path)
-                os.rmdir(temp_dir)
-                return redirect(url_for('index'))
-            else:
-                flash('Error loading data', 'error')
+            try:
+                # Generate a unique filename
+                filename = secure_filename(file.filename)
+                unique_filename = f"{uuid.uuid4().hex}_{filename}"
+                filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+                
+                # Save file to disk
+                file.save(filepath)
+                
+                # Store in database
+                session_id = get_session_id()
+                uploaded_file = UploadedFile(
+                    filename=filename,
+                    filepath=filepath,
+                    session_id=session_id
+                )
+                db.session.add(uploaded_file)
+                db.session.commit()
+                
+                # Update session
+                session['filepath'] = filepath
+                session['filename'] = filename
+                
+                # Load data using DataManager
+                if data_manager.load_data(filepath, filename):
+                    flash('File uploaded and loaded successfully', 'success')
+                    return redirect(url_for('data_cleaning'))
+                else:
+                    # If data loading fails, clean up
+                    os.remove(filepath)
+                    db.session.delete(uploaded_file)
+                    db.session.commit()
+                    flash('Error loading data from file', 'error')
+                    return redirect(request.url)
+                    
+            except Exception as e:
+                print(f"Error in file upload: {str(e)}")
+                flash(f'Error uploading file: {str(e)}', 'error')
                 return redirect(request.url)
     
     return render_template('upload.html')
 
 @app.route('/sample')
 def use_sample_data():
-    # Load sample data
-    df = load_sample_data()
-    if df.empty:
+    try:
+        # Load sample data using DataManager
+        if data_manager.load_data(sample_name="retail_inventory"):
+            flash('Sample data loaded successfully', 'success')
+            return redirect(url_for('data_cleaning'))
+        else:
+            flash('Error loading sample data', 'danger')
+            return redirect(url_for('index'))
+    except Exception as e:
+        print(f"Error loading sample data: {str(e)}")
         flash('Error loading sample data', 'danger')
         return redirect(url_for('index'))
-    
-    # Generate a unique filename
-    unique_filename = f"sample_data_{uuid.uuid4().hex}.csv"
-    sample_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
-    
-    # Save to file
-    df.to_csv(sample_path, index=False)
-    
-    # Store in session
-    session_id = get_session_id()
-    session['filename'] = 'sample_data.csv'
-    session['filepath'] = sample_path
-    session['columns'] = df.columns.tolist()
-    
-    # Store in database
-    new_file = UploadedFile(
-        filename='sample_data.csv',
-        filepath=sample_path,
-        session_id=session_id
-    )
-    db.session.add(new_file)
-    db.session.commit()
-    
-    flash('Sample data loaded successfully', 'success')
-    return redirect(url_for('data_cleaning'))
 
 @app.route('/data_cleaning', methods=['GET', 'POST'])
 def data_cleaning():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('data_cleaning.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('data_cleaning.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in data cleaning: {str(e)}")
+        return render_template('data_cleaning.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/advanced_data_cleaning', methods=['GET', 'POST'])
 def advanced_data_cleaning():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('advanced_data_cleaning.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('advanced_data_cleaning.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in advanced data cleaning: {str(e)}")
+        return render_template('advanced_data_cleaning.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/convert_data_types', methods=['GET', 'POST'])
 def convert_data_types():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('convert_data_types.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('convert_data_types.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in convert data types: {str(e)}")
+        return render_template('convert_data_types.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/data_interpretation', methods=['GET', 'POST'])
 def data_interpretation():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('data_interpretation.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('data_interpretation.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in data interpretation: {str(e)}")
+        return render_template('data_interpretation.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/advanced_data_analysis', methods=['GET', 'POST'])
 def advanced_data_analysis():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('advanced_data_analysis.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('advanced_data_analysis.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in advanced data analysis: {str(e)}")
+        return render_template('advanced_data_analysis.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/feature_engineering', methods=['GET', 'POST'])
 def feature_engineering():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('feature_engineering.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('feature_engineering.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in feature engineering: {str(e)}")
+        return render_template('feature_engineering.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/machine_learning', methods=['GET', 'POST'])
 def machine_learning():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('machine_learning.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('machine_learning.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in machine learning: {str(e)}")
+        return render_template('machine_learning.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/time_series', methods=['GET', 'POST'])
 def time_series():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('time_series.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('time_series.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in time series: {str(e)}")
+        return render_template('time_series.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/demand_forecasting', methods=['GET', 'POST'])
 def demand_forecasting():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('demand_forecasting.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('demand_forecasting.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in demand forecasting: {str(e)}")
+        return render_template('demand_forecasting.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/inventory_turnover', methods=['GET', 'POST'])
 def inventory_turnover():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('inventory_turnover.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('inventory_turnover.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in inventory turnover: {str(e)}")
+        return render_template('inventory_turnover.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/cost_of_inventory', methods=['GET', 'POST'])
 def cost_of_inventory():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('cost_of_inventory.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('cost_of_inventory.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in cost of inventory: {str(e)}")
+        return render_template('cost_of_inventory.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
-@app.route('/eoq_simulation', methods=['GET', 'POST'])
+@app.route('/eoq_simulation')
 def eoq_simulation():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('eoq_simulation.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('eoq_simulation.html', 
+                              has_data=has_data, 
+                              message="No data loaded. You can still use the simulation with manual inputs." if not has_data else "")
+    except Exception as e:
+        print(f"Error in EOQ simulation: {str(e)}")
+        return render_template('eoq_simulation.html', 
+                              has_data=False, 
+                              message="An error occurred. You can still use the simulation with manual inputs.")
 
-@app.route('/newsvendor_simulation', methods=['GET', 'POST'])
+@app.route('/newsvendor_simulation')
 def newsvendor_simulation():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('newsvendor_simulation.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('newsvendor_simulation.html', 
+                              has_data=has_data, 
+                              message="No data loaded. You can still use the simulation with manual inputs." if not has_data else "")
+    except Exception as e:
+        print(f"Error in newsvendor simulation: {str(e)}")
+        return render_template('newsvendor_simulation.html', 
+                              has_data=False, 
+                              message="An error occurred. You can still use the simulation with manual inputs.")
 
 @app.route('/clv_analysis', methods=['GET', 'POST'])
 def clv_analysis():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('clv_analysis.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('clv_analysis.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in CLV analysis: {str(e)}")
+        return render_template('clv_analysis.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 @app.route('/data_visualization', methods=['GET', 'POST'])
 def data_visualization():
-    # Check if data is available in session
-    if not session.get('filepath'):
-        flash('Please upload or load a dataset first.', 'warning')
-        return redirect(url_for('index'))
-    return render_template('data_visualization.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('data_visualization.html', 
+                              has_data=has_data, 
+                              message="No data loaded. Please upload a dataset first or load sample data." if not has_data else "")
+    except Exception as e:
+        print(f"Error in data visualization: {str(e)}")
+        return render_template('data_visualization.html', 
+                              has_data=False, 
+                              message="An error occurred. Please upload a dataset first or load sample data.")
 
 # API endpoints for data processing
 @app.route('/api/data_preview', methods=['GET'])
@@ -507,6 +622,7 @@ def api_data_preview():
         return jsonify({"error": f"Failed to load data: {str(e)}"}), 500
 
 @app.route('/api/clean_data', methods=['POST'])
+@csrf.exempt
 def api_clean_data():
     df = get_session_data()
     if df is None:
@@ -569,6 +685,7 @@ def api_data_types():
     return jsonify(data_types)
 
 @app.route('/api/convert_types', methods=['POST'])
+@csrf.exempt
 def api_convert_types():
     df = get_session_data()
     if df is None:
@@ -776,6 +893,7 @@ def get_ml_data_preview():
         return jsonify({'error': f'Failed to load ML data: {str(e)}'}), 500
 
 @app.route('/api/ml/train', methods=['POST'])
+@csrf.exempt
 def train_model():
     try:
         data = request.json
@@ -952,6 +1070,7 @@ def train_model():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ml/predict', methods=['POST'])
+@csrf.exempt
 def make_prediction():
     """Make predictions using the trained model"""
     try:
@@ -1295,6 +1414,7 @@ def convert_to_datetime():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ts/plot', methods=['POST'])
+@csrf.exempt
 def generate_ts_plot():
     try:
         data = request.json
@@ -1333,6 +1453,7 @@ def generate_ts_plot():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ts/decompose', methods=['POST'])
+@csrf.exempt
 def decompose_time_series():
     try:
         data = request.json
@@ -1373,6 +1494,7 @@ def decompose_time_series():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/ts/forecast', methods=['POST'])
+@csrf.exempt
 def forecast_time_series():
     try:
         data = request.json
@@ -1444,6 +1566,7 @@ def forecast_time_series():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/inventory/calculate', methods=['POST'])
+@csrf.exempt
 def calculate_inventory_metrics():
     try:
         data = request.json
@@ -1486,6 +1609,7 @@ def calculate_inventory_metrics():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/eoq/calculate', methods=['POST'])
+@csrf.exempt
 def calculate_eoq():
     try:
         data = request.get_json()
@@ -1604,6 +1728,7 @@ def get_clv_data_preview():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clv/calculate', methods=['POST'])
+@csrf.exempt
 def calculate_clv():
     """Calculate Customer Lifetime Value"""
     if not data_manager.has_data():
@@ -1690,19 +1815,60 @@ def get_data_preview():
     if not data_manager.has_data():
         return jsonify({'error': 'No data loaded'}), 404
     
-    df = data_manager.get_data()
-    preview = df.head(5).to_dict(orient='records')
-    return jsonify({
-        'preview': preview,
-        'columns': df.columns.tolist(),
-        'total_rows': len(df)
-    })
+    try:
+        df = data_manager.get_data()
+        if df is None or df.empty:
+            return jsonify({'error': 'No data available'}), 404
+            
+        # Convert data to JSON-serializable format
+        preview_data = []
+        for idx, row in df.head(10).iterrows():
+            row_dict = {}
+            for col, val in row.items():
+                if pd.isna(val):
+                    row_dict[col] = None
+                elif isinstance(val, (np.integer, np.int64)):
+                    row_dict[col] = int(val)
+                elif isinstance(val, (np.floating, np.float64)):
+                    row_dict[col] = float(val)
+                elif isinstance(val, (np.datetime64, pd.Timestamp)):
+                    row_dict[col] = val.isoformat()
+                else:
+                    row_dict[col] = str(val)
+            preview_data.append(row_dict)
+        
+        # Get metadata
+        metadata = data_manager.metadata
+        
+        return jsonify({
+            'data': preview_data,
+            'columns': df.columns.tolist(),
+            'row_count': len(df),
+            'column_count': len(df.columns),
+            'filename': metadata.get('filename', 'Unknown'),
+            'last_updated': metadata.get('last_updated'),
+            'column_types': {col: str(dtype) for col, dtype in df.dtypes.items()}
+        })
+    except Exception as e:
+        print(f"Error in data preview: {str(e)}")
+        return jsonify({'error': f'Failed to load data: {str(e)}'}), 500
 
-@app.route('/safety_stock', methods=['GET'])
+@app.route('/safety_stock')
 def safety_stock():
-    return render_template('safety_stock.html')
+    try:
+        data = get_session_data()
+        has_data = data is not None
+        return render_template('safety_stock.html', 
+                              has_data=has_data, 
+                              message="No data loaded. You can still use the simulation with manual inputs." if not has_data else "")
+    except Exception as e:
+        print(f"Error in safety stock calculation: {str(e)}")
+        return render_template('safety_stock.html', 
+                              has_data=False, 
+                              message="An error occurred. You can still use the simulation with manual inputs.")
 
 @app.route('/api/safety-stock/simulate', methods=['POST'])
+@csrf.exempt  # Exempt this route from CSRF protection since we're handling it in the frontend
 def simulate_safety_stock():
     try:
         data = request.get_json()
@@ -1777,6 +1943,7 @@ def inventory():
     return render_template('inventory.html')
 
 @app.route('/api/inventory/analyze', methods=['POST'])
+@csrf.exempt
 def analyze_inventory():
     try:
         data = request.get_json()
@@ -1842,6 +2009,22 @@ def analyze_inventory():
         
     except Exception as e:
         return jsonify({'error': str(e)}), 400
+
+@app.before_request
+def before_request():
+    """Initialize DataManager with the current session before each request"""
+    data_manager.init_app(session)
+
+# Add CSRF token route for AJAX requests
+@app.route('/get-csrf-token')
+def get_csrf_token():
+    token = generate_csrf()
+    return jsonify({'csrf_token': token})
+
+# Add CSRF token context processor for templates
+@app.context_processor
+def inject_csrf_token():
+    return {'csrf_token': generate_csrf()}
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 

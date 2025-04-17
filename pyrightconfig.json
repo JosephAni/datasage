@@ -1,5 +1,6 @@
 {
-  "exclude": ["venv"],
-  "reportMissingImports": true,
-  "reportMissingTypeStubs": false
+  "venvPath": ".",
+  "venv": "venv",
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false
 } 

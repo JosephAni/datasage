@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}AI-Powered Data Cleaning Agent{% endblock %}</title>
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{% block title %}AI-Powered Retail Agent{% endblock %}</title>
     
     <!-- jQuery -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -20,7 +21,67 @@
     <!-- Plotly.js -->
     <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
     
+    <!-- CSRF Protection -->
+    <script src="{{ url_for('static', filename='js/csrf.js') }}"></script>
+    
     {% block extra_head %}{% endblock %}
+
+    <script>
+    // Global data management
+    const DataState = {
+        isLoaded: false,
+        metadata: null,
+        columnTypes: null,
+        columnStats: null,
+        preview: null,
+        
+        async initialize() {
+            try {
+                const response = await fetch('/api/data/info');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.isLoaded = true;
+                    this.metadata = data.metadata;
+                    this.columnTypes = data.column_types;
+                    this.columnStats = data.column_stats;
+                    document.dispatchEvent(new CustomEvent('dataStateUpdated'));
+                } else {
+                    this.isLoaded = false;
+                    console.log('Data not yet loaded or unavailable');
+                }
+            } catch (error) {
+                this.isLoaded = false;
+                console.error('Error initializing data state:', error);
+            }
+        },
+        
+        async getPreview() {
+            try {
+                const response = await fetch('/api/data/preview');
+                if (response.ok) {
+                    const data = await response.json();
+                    this.preview = data;
+                    return data;
+                }
+                throw new Error('Failed to load data preview');
+            } catch (error) {
+                console.error('Error getting data preview:', error);
+                return null;
+            }
+        },
+        
+        async refresh() {
+            await this.initialize();
+            await this.getPreview();
+            document.dispatchEvent(new CustomEvent('dataStateUpdated'));
+        }
+    };
+
+    // Initialize data state when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+        DataState.initialize();
+    });
+    </script>
 </head>
 <body>
     <div class="wrapper">
@@ -158,54 +219,5 @@
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     
     {% block scripts %}{% endblock %}
-
-    {% block head %}
-    <script>
-    // Global data management
-    const DataState = {
-        isLoaded: false,
-        metadata: null,
-        columnTypes: null,
-        columnStats: null,
-        
-        async initialize() {
-            try {
-                const response = await fetch('/api/data/info');
-                if (response.ok) {
-                    const data = await response.json();
-                    this.isLoaded = true;
-                    this.metadata = data.metadata;
-                    this.columnTypes = data.column_types;
-                    this.columnStats = data.column_stats;
-                    document.dispatchEvent(new CustomEvent('dataStateUpdated'));
-                } else {
-                    this.isLoaded = false;
-                    console.error('Failed to load data state');
-                }
-            } catch (error) {
-                console.error('Error initializing data state:', error);
-            }
-        },
-        
-        async getPreview() {
-            try {
-                const response = await fetch('/api/data/preview');
-                if (response.ok) {
-                    return await response.json();
-                }
-                throw new Error('Failed to load data preview');
-            } catch (error) {
-                console.error('Error getting data preview:', error);
-                return null;
-            }
-        }
-    };
-
-    // Initialize data state when page loads
-    document.addEventListener('DOMContentLoaded', () => {
-        DataState.initialize();
-    });
-    </script>
-    {% endblock %}
 </body>
 </html> 

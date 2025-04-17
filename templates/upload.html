@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Upload Data - AI-Powered Data Cleaning Agent{% endblock %}
+
+{% block content %}
+<h1 class="main-header">Upload Your Data</h1>
+
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card shadow">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">Upload a File</h3>
+            </div>
+            <div class="card-body">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+                
+                <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+                    {% include '_csrf_field.html' %}
+                    <div class="mb-3">
+                        <label for="file" class="form-label">Choose a file to upload</label>
+                        <input type="file" class="form-control" id="file" name="file" accept=".csv,.xlsx,.xls,.json" required>
+                        <div class="form-text text-muted">
+                            Supported file types: CSV, Excel (XLSX/XLS), JSON
+                        </div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-upload me-2"></i>Upload and Analyze
+                        </button>
+                        <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to Home
+                        </a>
+                    </div>
+                </form>
+            </div>
+            
+            <div class="card-footer">
+                <div class="text-muted small">
+                    <p class="mb-0"><strong>Note:</strong> For best results, ensure your file:</p>
+                    <ul class="mb-0">
+                        <li>Has a header row with column names</li>
+                        <li>Is properly formatted (e.g., consistent delimiters for CSV)</li>
+                        <li>Is less than 50MB in size</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4 text-center">
+            <p>Don't have a dataset to upload?</p>
+            <a href="{{ url_for('use_sample_data') }}" class="btn btn-success">
+                <i class="fas fa-database me-2"></i>Use Sample Data
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %} 

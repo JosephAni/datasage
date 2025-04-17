@@ -52,37 +52,37 @@
 <h1 class="main-header">EOQ Simulation 📊</h1>
     
 <div class="simulation-card">
-            <h3>Economic Order Quantity (EOQ) Simulator</h3>
-            <p>Visualize how order size affects total inventory costs and find the optimal order quantity that minimizes total costs.</p>
-    </div>
+    <h3>Economic Order Quantity (EOQ) Simulator</h3>
+    <p>Visualize how order size affects total inventory costs and find the optimal order quantity that minimizes total costs.</p>
+</div>
 
-    <div class="row">
-        <div class="col-md-4">
-            <div class="card mb-4">
+<div class="row">
+    <div class="col-md-4">
+        <div class="card mb-4">
             <div class="card-header bg-primary text-white">
                 <h4 class="mb-0">Parameters</h4>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        <label for="annual-demand" class="form-label">Annual Demand (units)</label>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <label for="annual-demand" class="form-label">Annual Demand (units)</label>
                     <input type="number" class="form-control" id="annual-demand" value="400" min="1" step="1">
-                        <div class="form-text">Total number of units demanded per year</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="order-cost" class="form-label">Cost per Order ($)</label>
+                    <div class="form-text">Total number of units demanded per year</div>
+                </div>
+                <div class="mb-3">
+                    <label for="order-cost" class="form-label">Cost per Order ($)</label>
                     <input type="number" class="form-control" id="order-cost" value="500.0" min="0" step="10">
-                        <div class="form-text">Fixed cost of placing an order</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="unit-cost" class="form-label">Unit Cost ($)</label>
+                    <div class="form-text">Fixed cost of placing an order</div>
+                </div>
+                <div class="mb-3">
+                    <label for="unit-cost" class="form-label">Unit Cost ($)</label>
                     <input type="number" class="form-control" id="unit-cost" value="200.0" min="0" step="1">
-                        <div class="form-text">Cost per unit of inventory</div>
-                    </div>
-                    <div class="mb-3">
-                        <label for="holding-rate" class="form-label">Cost of Capital (%)</label>
+                    <div class="form-text">Cost per unit of inventory</div>
+                </div>
+                <div class="mb-3">
+                    <label for="holding-rate" class="form-label">Cost of Capital (%)</label>
                     <input type="number" class="form-control" id="holding-rate" value="20.0" min="0" step="0.1">
-                        <div class="form-text">Annual holding cost as a percentage of unit cost</div>
-                    </div>
+                    <div class="form-text">Annual holding cost as a percentage of unit cost</div>
+                </div>
                 <div class="mb-3">
                     <label for="custom-order" class="form-label">Custom Order Size (units)</label>
                     <input type="number" class="form-control" id="custom-order" min="1" step="1">
@@ -93,12 +93,12 @@
         
         <div class="result-card">
             <h4>Optimal Order Quantity</h4>
-                            <div class="metric-card">
+            <div class="metric-card">
                 <div class="metric-label">Optimal Order Size</div>
                 <div class="metric-value" id="optimal-order-size">0 units</div>
-                            </div>
-                        </div>
-                    </div>
+            </div>
+        </div>
+    </div>
                     
     <div class="col-md-8">
         <div class="card mb-4">
@@ -107,14 +107,14 @@
             </div>
             <div class="card-body">
                 <div id="cost-curves-chart" class="cost-curve"></div>
-                    </div>
-                </div>
+            </div>
+        </div>
 
         <div class="card">
             <div class="card-header bg-success text-white">
                 <h4 class="mb-0">Inventory Pattern</h4>
-                </div>
-                <div class="card-body">
+            </div>
+            <div class="card-body">
                 <div id="inventory-pattern-chart" class="inventory-pattern"></div>
             </div>
         </div>
@@ -180,6 +180,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById(inputId).addEventListener('input', calculateEOQ);
     });
 
+    // Initial calculation
+    calculateEOQ();
+
     function calculateEOQ() {
         const data = {
             annual_demand: parseFloat(document.getElementById('annual-demand').value),
@@ -192,18 +195,24 @@ document.addEventListener('DOMContentLoaded', function() {
         fetch('/api/eoq/calculate', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('meta[name="csrf-token"]').getAttribute('content')
             },
             body: JSON.stringify(data)
         })
-        .then(response => response.json())
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
         .then(result => {
             updateMetrics(result);
             createCharts(result, data);
         })
         .catch(error => {
             console.error('Error:', error);
-            alert('Error calculating EOQ. Please check your input values.');
+            alert('Error calculating EOQ. Please check your input values and try again.');
         });
     }
 
@@ -220,109 +229,117 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('optimal-total-cost').textContent = 
             formatCurrency(result.optimal_costs.total_cost);
 
-        document.getElementById('custom-order-cost').textContent = 
-            formatCurrency(result.custom_costs.order_cost);
-        document.getElementById('custom-holding-cost').textContent = 
-            formatCurrency(result.custom_costs.holding_cost);
-        document.getElementById('custom-total-cost').textContent = 
-            formatCurrency(result.custom_costs.total_cost);
+        if (result.custom_costs) {
+            document.getElementById('custom-order-cost').textContent = 
+                formatCurrency(result.custom_costs.order_cost);
+            document.getElementById('custom-holding-cost').textContent = 
+                formatCurrency(result.custom_costs.holding_cost);
+            document.getElementById('custom-total-cost').textContent = 
+                formatCurrency(result.custom_costs.total_cost);
 
-        // Calculate and display differences
-        const orderCostDiff = result.custom_costs.order_cost - result.optimal_costs.order_cost;
-        const holdingCostDiff = result.custom_costs.holding_cost - result.optimal_costs.holding_cost;
-        const totalCostDiff = result.custom_costs.total_cost - result.optimal_costs.total_cost;
+            // Calculate and display differences
+            const orderCostDiff = result.custom_costs.order_cost - result.optimal_costs.order_cost;
+            const holdingCostDiff = result.custom_costs.holding_cost - result.optimal_costs.holding_cost;
+            const totalCostDiff = result.custom_costs.total_cost - result.optimal_costs.total_cost;
 
-        document.getElementById('order-cost-diff').textContent = 
-            formatCurrency(orderCostDiff);
-        document.getElementById('holding-cost-diff').textContent = 
-            formatCurrency(holdingCostDiff);
-        document.getElementById('total-cost-diff').textContent = 
-            formatCurrency(totalCostDiff);
+            document.getElementById('order-cost-diff').textContent = 
+                formatCurrency(orderCostDiff);
+            document.getElementById('holding-cost-diff').textContent = 
+                formatCurrency(holdingCostDiff);
+            document.getElementById('total-cost-diff').textContent = 
+                formatCurrency(totalCostDiff);
 
-        // Add color classes to differences
-        const diffElements = [
-            'order-cost-diff',
-            'holding-cost-diff',
-            'total-cost-diff'
-        ];
+            // Add color classes to differences
+            const diffElements = [
+                'order-cost-diff',
+                'holding-cost-diff',
+                'total-cost-diff'
+            ];
 
-        diffElements.forEach(id => {
-            const element = document.getElementById(id);
-            const value = parseFloat(element.textContent.replace(/[^0-9.-]+/g, ''));
-            element.className = value > 0 ? 'text-danger' : 'text-success';
-        });
+            diffElements.forEach(id => {
+                const element = document.getElementById(id);
+                const value = parseFloat(element.textContent.replace(/[^0-9.-]+/g, ''));
+                element.className = value > 0 ? 'text-danger' : 'text-success';
+            });
+        }
     }
 
     function createCharts(result, data) {
-        // Cost Curves Chart
-        const costCurvesTrace1 = {
-            x: result.order_sizes,
-            y: result.order_costs,
-            name: 'Order Cost',
-            line: {color: '#1f77b4'}
-        };
-
-        const costCurvesTrace2 = {
-            x: result.order_sizes,
-            y: result.holding_costs,
-            name: 'Holding Cost',
-            line: {color: '#ff7f0e'}
-        };
-
-        const costCurvesTrace3 = {
-            x: result.order_sizes,
-            y: result.total_costs,
-            name: 'Total Cost',
-            line: {color: '#2ca02c', width: 3}
-        };
+        // Create cost curves chart
+        const costCurvesData = [
+            {
+                x: result.order_sizes,
+                y: result.order_costs,
+                name: 'Order Cost',
+                type: 'scatter',
+                line: { color: 'blue' }
+            },
+            {
+                x: result.order_sizes,
+                y: result.holding_costs,
+                name: 'Holding Cost',
+                type: 'scatter',
+                line: { color: 'red' }
+            },
+            {
+                x: result.order_sizes,
+                y: result.total_costs,
+                name: 'Total Cost',
+                type: 'scatter',
+                line: { color: 'green' }
+            }
+        ];
 
         const costCurvesLayout = {
             title: 'Cost Curves',
-            xaxis: {title: 'Order Size (units)'},
-            yaxis: {title: 'Cost ($)'},
-            showlegend: true
+            xaxis: { title: 'Order Size (units)' },
+            yaxis: { title: 'Cost ($)' },
+            showlegend: true,
+            legend: { x: 1, xanchor: 'right', y: 1 }
         };
 
-        Plotly.newPlot('cost-curves-chart', 
-            [costCurvesTrace1, costCurvesTrace2, costCurvesTrace3], 
-            costCurvesLayout);
+        Plotly.newPlot('cost-curves-chart', costCurvesData, costCurvesLayout);
 
-        // Inventory Pattern Chart
-        const inventoryTrace1 = {
-            x: result.time_points,
-            y: result.optimal_inventory,
-            name: 'Optimal Order',
-            line: {color: '#2ca02c', width: 2}
-        };
+        // Create inventory pattern chart
+        const inventoryPatternData = [
+            {
+                x: result.time_points,
+                y: result.optimal_inventory,
+                name: 'Optimal Order',
+                type: 'scatter',
+                line: { color: 'blue' }
+            }
+        ];
 
-        const inventoryTrace2 = {
-            x: result.time_points,
-            y: result.custom_inventory,
-            name: 'Custom Order',
-            line: {color: '#ff7f0e', width: 2, dash: 'dash'}
-        };
+        if (result.custom_inventory) {
+            inventoryPatternData.push({
+                x: result.time_points,
+                y: result.custom_inventory,
+                name: 'Custom Order',
+                type: 'scatter',
+                line: { color: 'red' }
+            });
+        }
 
-        const inventoryLayout = {
+        const inventoryPatternLayout = {
             title: 'Inventory Pattern Over Time',
-            xaxis: {title: 'Time'},
-            yaxis: {title: 'Inventory Level (units)'},
-            showlegend: true
+            xaxis: { title: 'Time (weeks)' },
+            yaxis: { title: 'Inventory Level (units)' },
+            showlegend: true,
+            legend: { x: 1, xanchor: 'right', y: 1 }
         };
 
-        Plotly.newPlot('inventory-pattern-chart', 
-            [inventoryTrace1, inventoryTrace2], 
-            inventoryLayout);
+        Plotly.newPlot('inventory-pattern-chart', inventoryPatternData, inventoryPatternLayout);
     }
 
     function formatCurrency(value) {
-        return '$' + value.toLocaleString('en-US', {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
             minimumFractionDigits: 2,
             maximumFractionDigits: 2
-        });
+        }).format(value);
     }
-    
-    // Initial calculation
-    calculateEOQ();
 });
 </script>
 {% endblock %} 

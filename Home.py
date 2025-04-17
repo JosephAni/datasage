@@ -8,7 +8,7 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 
 # Set page config - this must be the first Streamlit command
 st.set_page_config(
-    page_title="AI-Powered Data Cleaning Agent",
+    page_title="AI-Powered Retail Agent",
     page_icon="🧹",
     layout="wide",
     initial_sidebar_state="expanded"
