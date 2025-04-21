@@ -1,0 +1,50 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Data Management Standards
+
+## Critical Rules
+
+- All data loading functions must include comprehensive error handling with specific error messages
+- Use pandas for data manipulation and processing
+- Support multiple file formats (CSV, Excel, JSON, Parquet) with appropriate error handling
+- Include logging statements for tracking data loading and processing steps
+- Implement data validation before processing
+- Use type hints for function parameters and return values
+- Document all data transformations and cleaning steps
+- Cache processed data when appropriate to improve performance
+- Include metadata generation for loaded datasets
+- Use context managers for file operations
+
+## Examples
+
+<example>
+```python
+def load_data(file_path: str) -> pd.DataFrame:
+    """Load data from file with error handling and validation."""
+    try:
+        if file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        elif file_path.endswith('.parquet'):
+            df = pd.read_parquet(file_path)
+        else:
+            raise ValueError(f"Unsupported file format: {file_path}")
+        
+        validate_data(df)
+        return df
+    except Exception as e:
+        logger.error(f"Error loading data from {file_path}: {str(e)}")
+        raise
+```
+</example>
+
+<example type="invalid">
+```python
+def load_data(file):
+    # No error handling or type hints
+    df = pd.read_csv(file)
+    return df
+```
+</example>

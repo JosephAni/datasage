@@ -1,0 +1,96 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Jinja2 Template Standards
+
+## Critical Rules
+
+- Use template inheritance with a base layout template
+- Organize templates in logical subdirectories
+- Use consistent naming conventions for templates and blocks
+- Implement proper escaping for user-generated content
+- Use macros for reusable components
+- Include proper meta tags and viewport settings
+- Implement responsive design principles
+- Use consistent indentation in templates
+- Add comments for complex template logic
+- Keep logic in templates minimal
+
+## Examples
+
+<example>
+```html
+{# Base layout template: templates/base.html #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Default Title{% endblock %}</title>
+    {% block styles %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    {% endblock %}
+</head>
+<body>
+    <header>
+        {% include 'components/navbar.html' %}
+    </header>
+    
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <footer>
+        {% include 'components/footer.html' %}
+    </footer>
+    
+    {% block scripts %}
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    {% endblock %}
+</body>
+</html>
+```
+</example>
+
+<example>
+```html
+{# Page template: templates/pages/dashboard.html #}
+{% extends "base.html" %}
+
+{% block title %}Dashboard - {{ user.name }}{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    {# Use macros for reusable components #}
+    {% from "macros/cards.html" import data_card %}
+    
+    <h1>Welcome, {{ user.name|e }}</h1>
+    
+    <div class="grid">
+        {{ data_card("Sales", sales_data) }}
+        {{ data_card("Inventory", inventory_data) }}
+    </div>
+</div>
+{% endblock %}
+```
+</example>
+
+<example type="invalid">
+```html
+{# Bad practice: mixing too much logic in templates #}
+<div>
+    {% for item in items %}
+        {% if item.category == 'A' %}
+            {% if item.price > 100 %}
+                {% if item.stock > 0 %}
+                    {# Too much nested logic #}
+                    <div>{{ item.name }}</div>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+    {% endfor %}
+</div>
+```
+</example>
