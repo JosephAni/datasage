@@ -593,6 +593,12 @@ def clv_analysis():
                               has_data=False, 
                               message="An error occurred. Please upload a dataset first or load sample data.")
 
+@app.route('/manage_files')
+def manage_files():
+    # Get list of files from session
+    files = session.get('recent_files', [])
+    return render_template('manage_files.html', files=files)
+
 @app.route('/data_visualization', methods=['GET', 'POST'])
 def data_visualization():
     try:
