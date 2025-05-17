@@ -78,6 +78,57 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
     
+    // Dashboard feature card animation
+    const animateFeatureCards = () => {
+        const featureCards = document.querySelectorAll('.feature-card');
+        
+        if (featureCards.length > 0) {
+            featureCards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'all 0.5s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, 100 + (index * 100));
+            });
+        }
+    };
+    
+    // Animate dashboard stats counting
+    const animateCounters = () => {
+        const statNumbers = document.querySelectorAll('.stats-number');
+        
+        if (statNumbers.length > 0) {
+            statNumbers.forEach(number => {
+                const target = parseInt(number.textContent, 10);
+                let count = 0;
+                const duration = 1500; // ms
+                const frameDuration = 1000 / 60; // 60fps
+                const totalFrames = Math.round(duration / frameDuration);
+                const increment = target / totalFrames;
+                
+                const counter = setInterval(() => {
+                    count += increment;
+                    
+                    if (count >= target) {
+                        number.textContent = target;
+                        clearInterval(counter);
+                    } else {
+                        number.textContent = Math.floor(count);
+                    }
+                }, frameDuration);
+            });
+        }
+    };
+    
+    // Run animations if we're on the dashboard
+    if (window.location.pathname === '/' || window.location.pathname === '/index') {
+        setTimeout(animateFeatureCards, 300);
+        setTimeout(animateCounters, 500);
+    }
+    
     // Add AJAX error handler to display error messages
     $(document).ajaxError(function(event, jqXHR, settings, thrownError) {
         hideLoading();
@@ -123,7 +174,7 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Add any initialization code here
-    console.log('Inventory Optimization app initialized');
+    console.log('Inventory Optimization app initialized with enhanced dashboard');
 });
 
 // Utility function to format currency
@@ -259,6 +310,31 @@ function hideLoading() {
     }
 }
 
+// Dashboard-specific functions
+function updateDashboardStats(stats) {
+    // Update dashboard stats if they exist
+    Object.keys(stats).forEach(key => {
+        const element = document.getElementById(`stat-${key}`);
+        if (element) {
+            element.textContent = stats[key];
+        }
+    });
+}
+
+// Function to animate progress bars
+function animateProgressBars() {
+    const progressBars = document.querySelectorAll('.progress-bar');
+    
+    progressBars.forEach(bar => {
+        const width = bar.getAttribute('data-width') || bar.style.width;
+        bar.style.width = '0%';
+        
+        setTimeout(() => {
+            bar.style.width = width;
+        }, 300);
+    });
+}
+
 $(document).ready(function() {
     // Sidebar toggle
     $('#sidebarCollapse').on('click', function() {
@@ -307,4 +383,19 @@ $(document).ready(function() {
         $('#sidebarCollapse').addClass('active');
         $('#sidebarCollapse').find('span').text('Show Sidebar');
     }
+    
+    // Animate progress bars when on dashboard
+    if (window.location.pathname === '/' || window.location.pathname === '/index') {
+        setTimeout(animateProgressBars, 800);
+    }
+    
+    // Hover effects for feature cards
+    $('.feature-card').hover(
+        function() {
+            $(this).find('i').addClass('fa-bounce');
+        },
+        function() {
+            $(this).find('i').removeClass('fa-bounce');
+        }
+    );
 }); 
