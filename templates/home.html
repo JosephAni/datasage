@@ -1,101 +1,459 @@
 {% extends "base.html" %}
 
-{% block title %}Home - AI-Powered Data Cleaning Agent{% endblock %}
+{% block title %}Dashboard - AI-Powered Data Cleaning Agent{% endblock %}
+
+{% block extra_head %}
+<style>
+.dashboard-stats {
+    background: linear-gradient(to right, #4B70E2, #6388FF);
+    color: white;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 25px;
+    box-shadow: 0 4px 20px rgba(75, 112, 226, 0.2);
+    transition: transform 0.3s ease;
+}
+
+.dashboard-stats:hover {
+    transform: translateY(-5px);
+}
+
+.stats-card {
+    background-color: rgba(255, 255, 255, 0.2);
+    padding: 15px;
+    border-radius: 8px;
+    text-align: center;
+    height: 100%;
+}
+
+.stats-number {
+    font-size: 2rem;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.feature-card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    cursor: pointer;
+    height: 100%;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.recent-file {
+    background-color: white;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    transition: all 0.2s ease;
+}
+
+.recent-file:hover {
+    background-color: #f8f9fa;
+    transform: translateX(5px);
+}
+
+.file-icon {
+    font-size: 1.5rem;
+    margin-right: 15px;
+    color: #4B70E2;
+}
+
+.quick-start-btn {
+    display: block;
+    background: linear-gradient(to right, #4F46E5, #4B70E2);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 12px 20px;
+    margin-bottom: 15px;
+    text-align: center;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    text-decoration: none;
+}
+
+.quick-start-btn:hover {
+    background: linear-gradient(to right, #3F36D5, #3B60D2);
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(79, 70, 229, 0.3);
+    color: white;
+}
+
+.dashboard-header {
+    margin-bottom: 30px;
+}
+
+.welcome-message {
+    opacity: 0;
+    transform: translateY(20px);
+    animation: fadeInUp 0.8s ease forwards;
+    animation-delay: 0.2s;
+}
+
+@keyframes fadeInUp {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.progress-container {
+    height: 5px;
+    background-color: #f0f2f6;
+    border-radius: 3px;
+    margin-top: 5px;
+}
+
+.progress-bar {
+    height: 100%;
+    border-radius: 3px;
+    width: 0;
+    transition: width 0.5s ease;
+}
+
+.animation-delay-1 {
+    animation-delay: 0.3s;
+}
+
+.animation-delay-2 {
+    animation-delay: 0.5s;
+}
+
+.animation-delay-3 {
+    animation-delay: 0.7s;
+}
+</style>
+{% endblock %}
 
 {% block content %}
-<h1 class="main-header">AI-Powered Retail Agent 🖨️💎🛁📊🤖</h1>
+<div class="dashboard-header">
+    <h1 class="main-header">AI-Powered Data Cleaning Dashboard <i class="fas fa-robot ms-2"></i></h1>
+    <p class="welcome-message">Welcome to your intelligent data cleaning and analysis platform. Start transforming your data into actionable insights.</p>
+</div>
 
-<div class="bg-primary p-4 text-white rounded mb-4">
-    <h2 style="color: #FFFFFF; font-size: 1.8rem;">Transform Messy Data into Actionable Insights</h2>
-    <p style="font-size: 1.1rem; margin: 15px 0; color: #E5E7EB;">
-        Our AI-powered data cleaning agent helps businesses and analysts tackle challenging data preparation tasks with ease.
-        Stop spending 80% of your time cleaning data and focus on extracting valuable insights and making data-driven decisions.
-    </p>
+<!-- Dashboard Summary Stats -->
+<div class="dashboard-stats">
+    <div class="row">
+        <div class="col-md-3 mb-3">
+            <div class="stats-card animation-delay-1">
+                <i class="fas fa-upload fa-2x"></i>
+                <div class="stats-number">{{ session.get('total_uploads', 0) }}</div>
+                <div>Files Uploaded</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card animation-delay-2">
+                <i class="fas fa-broom fa-2x"></i>
+                <div class="stats-number">{{ session.get('cleaning_operations', 0) }}</div>
+                <div>Cleaning Operations</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card animation-delay-2">
+                <i class="fas fa-chart-line fa-2x"></i>
+                <div class="stats-number">{{ session.get('visualizations', 0) }}</div>
+                <div>Visualizations</div>
+            </div>
+        </div>
+        <div class="col-md-3 mb-3">
+            <div class="stats-card animation-delay-3">
+                <i class="fas fa-brain fa-2x"></i>
+                <div class="stats-number">{{ session.get('ml_models', 0) }}</div>
+                <div>ML Models</div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="row">
-    <div class="col-md-6 mb-4">
-        <div class="bg-primary-custom">
-            <h3 style="color: white; font-size: 1.3rem;">Why Use This Tool?</h3>
-            <ul style="color: white; padding-left: 20px;">
-                <li>Handles missing data, outliers, and incorrect formats automatically</li>
-                <li>Transforms raw data into ML-ready datasets with feature engineering</li>
-                <li>Provides advanced forecasting and business analytics capabilities</li>
-            </ul>
-        </div>
-    </div>
-    
-    <div class="col-md-6 mb-4">
-        <div class="bg-dark-custom">
-            <h3 style="color: white; font-size: 1.3rem;">Ideal For</h3>
-            <ul style="color: white; padding-left: 20px;">
-                <li>Business analysts preparing data for reports and dashboards</li>
-                <li>Data scientists building predictive models and ML pipelines</li>
-                <li>Retailers analyzing inventory, sales, and customer data</li>
-            </ul>
-        </div>
-    </div>
-</div>
-
-<div class="bg-accent-custom">
-    <h3 style="color: white; font-size: 1.3rem; margin-bottom: 10px;">Get Started in 3 Simple Steps:</h3>
-    <ol style="color: white; padding-left: 25px;">
-        <li><strong>Upload your data</strong> (CSV, Excel, or JSON)</li>
-        <li><strong>Choose a feature</strong> from the navigation menu that matches your need</li>
-        <li><strong>Get instant results</strong> with visualizations and downloadable clean data</li>
-    </ol>
-    <p style="color: #E5E7EB; font-style: italic; margin-top: 10px; font-size: 0.9rem;">
-        No data? No problem! Use our sample dataset to explore the application's capabilities.
-    </p>
-</div>
-
-<div class="bg-dark-custom">
-    <h3 style="color: white; margin-bottom: 10px;">Welcome to the AI-Powered Data Cleaning Agent!</h3>
-    <p style="color: white; margin-bottom: 15px;">This tool helps you clean, analyze, and visualize your data 
-    with advanced features including:</p>
-    
-    <ul style="color: white; padding-left: 25px; margin-bottom: 15px;">
-        <li>Data cleaning and preprocessing</li>
-        <li>Exploratory data analysis</li>
-        <li>Time series analysis and forecasting</li>
-        <li>Customer Lifetime Value (CLV) calculation</li>
-        <li>Inventory turnover simulation</li>
-        <li>Advanced data cleaning and analysis</li>
-        <li>And much more!</li>
-    </ul>
-    
-    <p style="color: white; font-weight: 500;">Get started by uploading your data file below.</p>
-</div>
-
-<div class="row mt-4">
-    <div class="col-md-6">
+    <!-- Left Column (8/12) -->
+    <div class="col-lg-8">
+        <!-- Quick Start Actions -->
         <div class="card mb-4">
-            <div class="card-header bg-primary text-white">
-                <h4 class="mb-0">Upload Your Data</h4>
+            <div class="card-header bg-white">
+                <h4 class="mb-0"><i class="fas fa-bolt text-warning me-2"></i>Quick Start</h4>
             </div>
             <div class="card-body">
-                <form action="/upload" method="post" enctype="multipart/form-data">
+                <div class="row">
+                    <div class="col-md-6">
+                        <a href="/upload" class="quick-start-btn">
+                            <i class="fas fa-upload me-2"></i> Upload New Data
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="/sample" class="quick-start-btn">
+                            <i class="fas fa-table me-2"></i> Load Sample Data
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="row mt-3">
+                    <div class="col-md-6">
+                        <a href="/data_cleaning" class="quick-start-btn">
+                            <i class="fas fa-broom me-2"></i> Clean Your Data
+                        </a>
+                    </div>
+                    <div class="col-md-6">
+                        <a href="/data_visualization" class="quick-start-btn">
+                            <i class="fas fa-chart-bar me-2"></i> Visualize Data
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Feature Showcase -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h4 class="mb-0"><i class="fas fa-star text-warning me-2"></i>Top Features</h4>
+            </div>
+            <div class="card-body pb-0">
+                <div class="row">
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-magic fa-3x text-primary"></i>
+                            </div>
+                            <h5 class="text-center">Intelligent Data Cleaning</h5>
+                            <p class="small text-muted">
+                                Automatically detect and fix missing values, outliers, and incorrect formats.
+                            </p>
+                            <div class="text-center">
+                                <a href="/data_cleaning" class="btn btn-sm btn-outline-primary">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-chart-pie fa-3x text-success"></i>
+                            </div>
+                            <h5 class="text-center">Data Visualization</h5>
+                            <p class="small text-muted">
+                                Create beautiful, interactive visualizations to gain insights from your data.
+                            </p>
+                            <div class="text-center">
+                                <a href="/data_visualization" class="btn btn-sm btn-outline-success">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-brain fa-3x text-danger"></i>
+                            </div>
+                            <h5 class="text-center">ML Models</h5>
+                            <p class="small text-muted">
+                                Build and train machine learning models with just a few clicks.
+                            </p>
+                            <div class="text-center">
+                                <a href="/machine_learning" class="btn btn-sm btn-outline-danger">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-clock fa-3x text-info"></i>
+                            </div>
+                            <h5 class="text-center">Time Series Analysis</h5>
+                            <p class="small text-muted">
+                                Discover trends and patterns in your time-based data.
+                            </p>
+                            <div class="text-center">
+                                <a href="/time_series" class="btn btn-sm btn-outline-info">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-boxes fa-3x text-warning"></i>
+                            </div>
+                            <h5 class="text-center">Inventory Analysis</h5>
+                            <p class="small text-muted">
+                                Optimize your inventory management with advanced analytics.
+                            </p>
+                            <div class="text-center">
+                                <a href="/inventory_turnover" class="btn btn-sm btn-outline-warning">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-4">
+                        <div class="feature-card h-100 p-3 border rounded">
+                            <div class="text-center mb-3">
+                                <i class="fas fa-users fa-3x text-secondary"></i>
+                            </div>
+                            <h5 class="text-center">Customer Analysis</h5>
+                            <p class="small text-muted">
+                                Calculate customer lifetime value and segment your customers.
+                            </p>
+                            <div class="text-center">
+                                <a href="/clv_analysis" class="btn btn-sm btn-outline-secondary">Try Now</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right Column (4/12) -->
+    <div class="col-lg-4">
+        <!-- Data Upload Card -->
+        <div class="card mb-4">
+            <div class="card-header bg-primary text-white">
+                <h5 class="mb-0"><i class="fas fa-upload me-2"></i>Upload Your Data</h5>
+            </div>
+            <div class="card-body">
+                <form action="/upload" method="post" enctype="multipart/form-data" id="upload-form">
                     {% include '_csrf_field.html' %}
                     <div class="mb-3">
-                        <label for="file" class="form-label">Choose a CSV, Excel, or JSON file</label>
+                        <label for="file" class="form-label">Select File</label>
                         <input type="file" class="form-control" id="file" name="file" accept=".csv,.xlsx,.xls,.json">
+                        <div class="form-text">Supported formats: CSV, Excel, JSON</div>
                     </div>
-                    <button type="submit" class="btn btn-primary">Upload & Analyze</button>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="fas fa-upload me-2"></i>Upload & Analyze
+                    </button>
                 </form>
             </div>
         </div>
-    </div>
-    
-    <div class="col-md-6">
-        <div class="card">
-            <div class="card-header bg-success text-white">
-                <h4 class="mb-0">Use Sample Data</h4>
+
+        <!-- Recent Files -->
+        <div class="card mb-4">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="fas fa-history text-secondary me-2"></i>Recent Files</h5>
             </div>
             <div class="card-body">
-                <p>Don't have a dataset handy? Use our sample dataset to explore the application's capabilities.</p>
-                <a href="/sample" class="btn btn-success">Load Sample Data</a>
+                {% if session.get('recent_files') %}
+                    {% for file in session.get('recent_files') %}
+                        <div class="recent-file">
+                            <div class="file-icon">
+                                {% if file.type == 'csv' %}
+                                    <i class="fas fa-file-csv"></i>
+                                {% elif file.type == 'excel' %}
+                                    <i class="fas fa-file-excel"></i>
+                                {% elif file.type == 'json' %}
+                                    <i class="fas fa-file-code"></i>
+                                {% else %}
+                                    <i class="fas fa-file"></i>
+                                {% endif %}
+                            </div>
+                            <div>
+                                <div class="fw-bold">{{ file.name }}</div>
+                                <div class="small text-muted">{{ file.date }}</div>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% else %}
+                    <p class="text-muted">No recent files. Upload data or use sample data to get started.</p>
+                {% endif %}
+                
+                <a href="/manage_files" class="btn btn-outline-secondary btn-sm w-100 mt-3">
+                    <i class="fas fa-folder-open me-2"></i>Manage All Files
+                </a>
+            </div>
+        </div>
+
+        <!-- Progress Status -->
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0"><i class="fas fa-tasks text-success me-2"></i>Data Progress</h5>
+            </div>
+            <div class="card-body">
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span>Data Cleaning</span>
+                        <small>{{ session.get('cleaning_progress', 0) }}%</small>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar bg-primary" style="width: {{ session.get('cleaning_progress', 0) }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span>Data Analysis</span>
+                        <small>{{ session.get('analysis_progress', 0) }}%</small>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar bg-success" style="width: {{ session.get('analysis_progress', 0) }}%"></div>
+                    </div>
+                </div>
+                
+                <div class="mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span>Visualization</span>
+                        <small>{{ session.get('visualization_progress', 0) }}%</small>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar bg-info" style="width: {{ session.get('visualization_progress', 0) }}%"></div>
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span>Machine Learning</span>
+                        <small>{{ session.get('ml_progress', 0) }}%</small>
+                    </div>
+                    <div class="progress-container">
+                        <div class="progress-bar bg-danger" style="width: {{ session.get('ml_progress', 0) }}%"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 </div>
-{% endblock %} 
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize any dashboard-specific JavaScript here
+        const uploadForm = document.getElementById('upload-form');
+        if (uploadForm) {
+            uploadForm.addEventListener('submit', function() {
+                showLoading('Uploading and processing your data...');
+            });
+        }
+        
+        // Animate in the feature cards
+        const featureCards = document.querySelectorAll('.feature-card');
+        featureCards.forEach((card, index) => {
+            setTimeout(() => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                card.style.transition = 'all 0.5s ease';
+                
+                setTimeout(() => {
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, 100);
+            }, index * 100);
+        });
+        
+        // Animate progress bars
+        const progressBars = document.querySelectorAll('.progress-bar');
+        setTimeout(() => {
+            progressBars.forEach(bar => {
+                const width = bar.style.width;
+                bar.style.width = '0%';
+                setTimeout(() => {
+                    bar.style.width = width;
+                }, 300);
+            });
+        }, 500);
+    });
+</script>
+{% endblock %}
