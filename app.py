@@ -297,6 +297,34 @@ def apply_cleaning(df, cleaning_actions):
 # Routes
 @app.route('/')
 def index():
+    # Initialize dashboard stats if they don't exist
+    if 'total_uploads' not in session:
+        session['total_uploads'] = 0
+    if 'cleaning_operations' not in session:
+        session['cleaning_operations'] = 0
+    if 'visualizations' not in session:
+        session['visualizations'] = 0
+    if 'ml_models' not in session:
+        session['ml_models'] = 0
+    
+    # Initialize progress stats if they don't exist
+    if 'cleaning_progress' not in session:
+        session['cleaning_progress'] = 0
+    if 'analysis_progress' not in session:
+        session['analysis_progress'] = 0
+    if 'visualization_progress' not in session:
+        session['visualization_progress'] = 0
+    if 'ml_progress' not in session:
+        session['ml_progress'] = 0
+    
+    # Sample recent files for display
+    if 'recent_files' not in session:
+        session['recent_files'] = [
+            {'name': 'Sample Sales Data.csv', 'type': 'csv', 'date': 'Today'},
+            {'name': 'Inventory Analysis.xlsx', 'type': 'excel', 'date': 'Yesterday'},
+            {'name': 'Customer Data.json', 'type': 'json', 'date': '3 days ago'}
+        ]
+    
     return render_template('home.html')
 
 @app.route('/upload', methods=['GET', 'POST'])
