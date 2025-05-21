@@ -1731,10 +1731,11 @@ def get_clv_data_preview():
 @csrf.exempt
 def calculate_clv():
     """Calculate Customer Lifetime Value"""
-    if not data_manager.has_data():
-        return jsonify({'error': 'No data loaded'}), 404
-        
     try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({'error': 'No data loaded'}), 404
+        
         data = request.get_json()
         customer_id_col = data.get('customer_id_col')
         date_col = data.get('date_col')
@@ -1742,8 +1743,6 @@ def calculate_clv():
         
         if not all([customer_id_col, date_col, amount_col]):
             return jsonify({'error': 'Missing required columns'}), 400
-            
-        df = data_manager.get_data()
         
         # Convert date column to datetime
         df[date_col] = pd.to_datetime(df[date_col])
@@ -1764,6 +1763,9 @@ def calculate_clv():
         # Using a simple formula: CLV = Average Order Value × Purchase Frequency × Customer Lifespan
         avg_lifespan = 365  # Assuming 1 year for this example
         
+        # Handle zero recency values to prevent division by zero
+        rfm['recency'] = rfm['recency'].replace(0, 1)  # Replace zeros with 1 to avoid division by zero
+        
         rfm['clv'] = (rfm['monetary'] / rfm['frequency']) * rfm['frequency'] * (avg_lifespan / rfm['recency'])
         
         # Prepare results
@@ -1780,6 +1782,7 @@ def calculate_clv():
         return jsonify(results)
         
     except Exception as e:
+        print(f"Error in CLV calculation: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/data/info', methods=['GET'])
@@ -2025,6 +2028,349 @@ def get_csrf_token():
 @app.context_processor
 def inject_csrf_token():
     return {'csrf_token': generate_csrf()}
+
+@app.route('/api/data/dtypes', methods=['GET'])
+def api_data_dtypes():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    
+    data_types = {}
+    for col in df.columns:
+        data_types[col] = str(df[col].dtype)
+    
+    return jsonify(data_types)
+
+@app.route('/api/data/columns', methods=['GET'])
+def api_data_columns():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    
+    columns = df.columns.tolist()
+    return jsonify({
+        'columns': columns,
+        'numeric_columns': df.select_dtypes(include=['number']).columns.tolist(),
+        'categorical_columns': df.select_dtypes(include=['object', 'category']).columns.tolist(),
+        'datetime_columns': df.select_dtypes(include=['datetime', 'datetime64']).columns.tolist()
+    })
+
+@app.route('/api/data/overview', methods=['GET'])
+def api_data_overview():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    
+    # Basic dataset statistics
+    overview = {
+        'row_count': len(df),
+        'column_count': len(df.columns),
+        'missing_values': int(df.isna().sum().sum()),
+        'duplicate_rows': int(df.duplicated().sum()),
+        'memory_usage': int(df.memory_usage(deep=True).sum()),
+        'columns': df.columns.tolist(),
+    }
+    
+    # Column statistics
+    column_stats = {}
+    for col in df.columns:
+        stats = {
+            'dtype': str(df[col].dtype),
+            'missing_count': int(df[col].isna().sum()),
+            'missing_percentage': float(df[col].isna().mean() * 100),
+            'unique_count': int(df[col].nunique()),
+        }
+        
+        # Add numeric statistics if applicable
+        if pd.api.types.is_numeric_dtype(df[col]):
+            stats.update({
+                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
+                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
+                'median': float(df[col].median()) if not pd.isna(df[col].median()) else None,
+                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None
+            })
+        
+        column_stats[col] = stats
+    
+    overview['column_stats'] = column_stats
+    
+    return jsonify(overview)
+
+@app.route('/api/data/skewness', methods=['GET'])
+def api_data_skewness():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    
+    # Calculate skewness for numeric columns
+    skewness = {}
+    numeric_cols = df.select_dtypes(include=['number']).columns
+    
+    for col in numeric_cols:
+        try:
+            skew_value = float(df[col].skew())
+            skewness[col] = {
+                'skew': skew_value,
+                'interpretation': 'Highly right-skewed' if skew_value > 1 else
+                                'Moderately right-skewed' if skew_value > 0.5 else
+                                'Approximately symmetric' if abs(skew_value) <= 0.5 else
+                                'Moderately left-skewed' if skew_value > -1 else
+                                'Highly left-skewed'
+            }
+        except Exception as e:
+            skewness[col] = {
+                'skew': None,
+                'error': str(e)
+            }
+    
+    return jsonify(skewness)
+
+@app.route('/api/data/feature-selection', methods=['POST'])
+@csrf.exempt
+def api_feature_selection():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"}), 404
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        method = data.get('method', 'correlation')
+        target = data.get('target')
+        n_features = int(data.get('n_features', 5))
+        
+        # Validate inputs
+        if target and target not in df.columns:
+            return jsonify({"error": f"Target column {target} not found"}), 400
+        
+        # Handle different feature selection methods
+        if method == 'correlation':
+            # Select features based on correlation with target
+            if not target:
+                return jsonify({"error": "Target column required for correlation method"}), 400
+                
+            # Get only numeric columns
+            numeric_df = df.select_dtypes(include=['number'])
+            
+            # Check if target is in numeric columns
+            if target not in numeric_df.columns:
+                return jsonify({"error": f"Target column {target} must be numeric"}), 400
+                
+            # Calculate correlation with target
+            correlations = numeric_df.corr()[target].sort_values(ascending=False)
+            
+            # Remove target itself from correlations
+            correlations = correlations.drop(target)
+            
+            # Get top features
+            top_features = correlations.head(n_features)
+            bottom_features = correlations.tail(n_features)
+            
+            return jsonify({
+                "top_positively_correlated": top_features.to_dict(),
+                "top_negatively_correlated": bottom_features.to_dict()
+            })
+            
+        elif method == 'variance':
+            # Select features based on variance
+            numeric_df = df.select_dtypes(include=['number'])
+            
+            # Calculate variance
+            variances = numeric_df.var().sort_values(ascending=False)
+            
+            # Get top features
+            top_features = variances.head(n_features)
+            
+            return jsonify({
+                "top_variance_features": top_features.to_dict()
+            })
+        
+        else:
+            return jsonify({"error": f"Unsupported method: {method}"}), 400
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/data/clustering', methods=['POST'])
+@csrf.exempt
+def api_clustering():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"}), 404
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        method = data.get('method', 'kmeans')
+        features = data.get('features', [])
+        n_clusters = int(data.get('n_clusters', 3))
+        
+        # Validate inputs
+        if not features:
+            return jsonify({"error": "Features list required"}), 400
+        
+        missing_features = [f for f in features if f not in df.columns]
+        if missing_features:
+            return jsonify({"error": f"Features not found: {missing_features}"}), 400
+        
+        # Get data for clustering
+        X = df[features].select_dtypes(include=['number'])
+        
+        # Handle missing values
+        X = X.fillna(X.mean())
+        
+        # Scale features
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        
+        # Perform clustering based on method
+        if method == 'kmeans':
+            from sklearn.cluster import KMeans
+            model = KMeans(n_clusters=n_clusters, random_state=42)
+        elif method == 'dbscan':
+            from sklearn.cluster import DBSCAN
+            model = DBSCAN(eps=0.5, min_samples=5)
+        elif method == 'hierarchical':
+            from sklearn.cluster import AgglomerativeClustering
+            model = AgglomerativeClustering(n_clusters=n_clusters)
+        else:
+            return jsonify({"error": f"Unsupported method: {method}"}), 400
+            
+        # Fit model
+        labels = model.fit_predict(X_scaled)
+        
+        # Get cluster statistics
+        df_result = df.copy()
+        df_result['cluster'] = labels
+        
+        # Compute cluster statistics
+        cluster_stats = []
+        for i in range(max(labels) + 1):
+            cluster_data = df_result[df_result['cluster'] == i]
+            stats = {
+                'cluster': int(i),
+                'size': len(cluster_data),
+                'percentage': float(len(cluster_data) / len(df) * 100)
+            }
+            
+            # Add mean/std for numeric features
+            for col in features:
+                if col in X.columns:
+                    stats[f'{col}_mean'] = float(cluster_data[col].mean())
+                    stats[f'{col}_std'] = float(cluster_data[col].std())
+            
+            cluster_stats.append(stats)
+        
+        return jsonify({
+            "cluster_stats": cluster_stats,
+            "cluster_labels": labels.tolist()
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/feature-engineering', methods=['POST'])
+@csrf.exempt
+def api_feature_engineering():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"}), 404
+    
+    try:
+        # Get request data
+        data = request.get_json()
+        operation = data.get('operation')
+        columns = data.get('columns', [])
+        new_column_name = data.get('new_column_name')
+        
+        # Validate inputs
+        if not operation:
+            return jsonify({"error": "Operation required"}), 400
+            
+        if not columns:
+            return jsonify({"error": "Columns required"}), 400
+            
+        if not new_column_name:
+            return jsonify({"error": "New column name required"}), 400
+            
+        # Check if columns exist
+        missing_columns = [col for col in columns if col not in df.columns]
+        if missing_columns:
+            return jsonify({"error": f"Columns not found: {missing_columns}"}), 400
+            
+        # Perform operation
+        df_result = df.copy()
+        
+        if operation == 'sum':
+            df_result[new_column_name] = df_result[columns].sum(axis=1)
+        elif operation == 'mean':
+            df_result[new_column_name] = df_result[columns].mean(axis=1)
+        elif operation == 'max':
+            df_result[new_column_name] = df_result[columns].max(axis=1)
+        elif operation == 'min':
+            df_result[new_column_name] = df_result[columns].min(axis=1)
+        elif operation == 'product':
+            df_result[new_column_name] = df_result[columns].product(axis=1)
+        elif operation == 'log':
+            if len(columns) != 1:
+                return jsonify({"error": "Log operation requires exactly one column"}), 400
+            df_result[new_column_name] = np.log(df_result[columns[0]])
+        elif operation == 'square':
+            if len(columns) != 1:
+                return jsonify({"error": "Square operation requires exactly one column"}), 400
+            df_result[new_column_name] = np.square(df_result[columns[0]])
+        elif operation == 'sqrt':
+            if len(columns) != 1:
+                return jsonify({"error": "Square root operation requires exactly one column"}), 400
+            df_result[new_column_name] = np.sqrt(df_result[columns[0]])
+        else:
+            return jsonify({"error": f"Unsupported operation: {operation}"}), 400
+            
+        # Update session data
+        session['data'] = df_result.to_dict('records')
+        
+        # Generate a unique filename
+        original_filename = session.get('filename', 'data.csv')
+        base_name, file_ext = os.path.splitext(original_filename)
+        unique_filename = f"processed_{base_name}_{uuid.uuid4().hex}{file_ext}"
+        processed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        # Save processed dataframe
+        if file_ext.lower() == '.csv':
+            df_result.to_csv(processed_filepath, index=False)
+        elif file_ext.lower() in ['.xls', '.xlsx']:
+            df_result.to_excel(processed_filepath, index=False)
+        elif file_ext.lower() == '.json':
+            df_result.to_json(processed_filepath, orient='records')
+        
+        # Update session
+        session['filepath'] = processed_filepath
+        session_id = get_session_id()
+        
+        # Get original file id if exists
+        original_file = UploadedFile.query.filter_by(filepath=session.get('filepath')).first()
+        original_id = original_file.id if original_file else None
+        
+        processed_file = ProcessedFile(
+            original_file_id=original_id,
+            filename=f"processed_{original_filename}",
+            filepath=processed_filepath,
+            process_type='feature_engineered',
+            session_id=session_id
+        )
+        db.session.add(processed_file)
+        db.session.commit()
+        
+        return jsonify({
+            "success": True,
+            "message": f"Created new column: {new_column_name}",
+            "new_column": df_result[new_column_name].head(5).tolist()
+        })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 
