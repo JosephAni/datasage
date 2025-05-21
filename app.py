@@ -937,18 +937,86 @@ def train_model():
         
         # Handle categorical features
         categorical_features = []
+
+        numeric_features = []
+
+        # First, perform more robust type checking
         for col in features:
-            if df[col].dtype == 'object' or df[col].dtype.name == 'category':
-                categorical_features.append(col)
-        
-        # Create preprocessing pipeline
-        numeric_features = list(set(features) - set(categorical_features))
-        preprocessor = ColumnTransformer(
-            transformers=[
-                ('num', StandardScaler(), numeric_features),
-                ('cat', OneHotEncoder(drop='first', sparse=False), categorical_features)
-            ]
-        )
+            # Check sample values to determine true type
+            sample = df[col].dropna().head(100)  # Get non-null sample values
+            
+            # If the column is already numeric type, check if it actually contains strings
+            if pd.api.types.is_numeric_dtype(df[col]):
+                try:
+                    # Try to convert the whole column to float to catch any string values
+                    pd.to_numeric(df[col])
+                    numeric_features.append(col)
+                except (ValueError, TypeError):
+                    # If conversion fails, it contains some strings
+                    if df[col].nunique() < 50:
+                        print(f"Converting mixed-type column {col} to categorical")
+                        categorical_features.append(col)
+                    else:
+                        print(f"Skipping column {col} - mixed types with too many unique values")
+            
+            # If it's an object/string type, check if it actually contains only numbers
+            elif df[col].dtype == 'object' or df[col].dtype.name == 'category':
+                # Check for actual string content and unique counts
+                if sample.apply(lambda x: isinstance(x, str)).any():
+                    # It contains strings, check number of unique values
+                    if df[col].nunique() < 50:
+                        print(f"Adding {col} as categorical - contains strings with acceptable unique count")
+                        categorical_features.append(col)
+                    else:
+                        print(f"Skipping categorical encoding for {col} - too many unique values ({df[col].nunique()})")
+                else:
+                    # Might be numeric stored as object, try to convert
+                    try:
+                        pd.to_numeric(df[col])
+                        print(f"Converting {col} from object to numeric")
+                        numeric_features.append(col)
+                    except (ValueError, TypeError):
+                        # Mixed type with non-convertible values
+                        if df[col].nunique() < 50:
+                            categorical_features.append(col)
+                        else:
+                            print(f"Skipping column {col} - unconvertible with too many unique values")
+            
+            # Handle other data types (datetime, etc.)
+            else:
+                print(f"Skipping unsupported column type: {col} ({df[col].dtype})")
+
+        # Safety check - force-convert numeric features to float before modeling
+        for col in numeric_features:
+            try:
+                # Convert to float and replace column in dataframe
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                # Remove from numeric features if too many NaNs were introduced
+                if df[col].isna().mean() > 0.3:  # If over 30% NaN after conversion
+                    print(f"Removing {col} from features - too many values couldn't be converted to numeric")
+                    numeric_features.remove(col)
+            except Exception as e:
+                print(f"Error converting {col} to numeric: {str(e)}")
+                numeric_features.remove(col)
+
+        print(f"Final feature sets - Numeric: {numeric_features}, Categorical: {categorical_features}")
+
+        # Add safer preprocessing for numeric features
+        transformers = []
+
+        # Only add numeric transformer if there are numeric features
+        if numeric_features:
+            transformers.append(('num', StandardScaler(), numeric_features))
+
+        # Only add categorical transformer if there are categorical features
+        if categorical_features:
+            transformers.append(('cat', OneHotEncoder(drop='first', sparse_output=False, handle_unknown='ignore'), categorical_features))
+
+        # If no valid transformers, use a simple passthrough
+        if not transformers:
+            transformers.append(('pass', 'passthrough', features))
+
+        preprocessor = ColumnTransformer(transformers=transformers)
         
         # Split data for supervised learning
         if problem_type in ['classification', 'regression']:
@@ -1788,13 +1856,45 @@ def calculate_clv():
 @app.route('/api/data/info', methods=['GET'])
 def get_data_info():
     """Get information about the loaded dataset"""
-    if not data_manager.has_data():
+    df = get_session_data()
+    if df is None:
         return jsonify({'error': 'No data loaded'}), 404
     
+    # Create basic metadata
+    metadata = {
+        'filename': session.get('filename', 'Unknown'),
+        'last_updated': datetime.datetime.now().isoformat(),
+        'row_count': len(df),
+        'column_count': len(df.columns)
+    }
+    
+    # Get column types
+    column_types = {col: str(df[col].dtype) for col in df.columns}
+    
+    # Calculate basic stats for each column
+    column_stats = {}
+    for col in df.columns:
+        stats = {
+            'missing': int(df[col].isna().sum()),
+            'unique_values': int(df[col].nunique())
+        }
+        
+        # Add numeric stats if applicable
+        if pd.api.types.is_numeric_dtype(df[col]):
+            stats.update({
+                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
+                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
+                'median': float(df[col].median()) if not pd.isna(df[col].median()) else None,
+                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None
+            })
+        
+        column_stats[col] = stats
+    
     return jsonify({
-        'metadata': data_manager.metadata,
-        'column_types': data_manager.get_column_types(),
-        'column_stats': data_manager.get_column_stats()
+        'metadata': metadata,
+        'column_types': column_types,
+        'column_stats': column_stats
     })
 
 def require_data(f):
@@ -1815,13 +1915,10 @@ def visualization():
 @app.route('/api/data/preview', methods=['GET'])
 def get_data_preview():
     """Get a preview of the loaded data"""
-    if not data_manager.has_data():
-        return jsonify({'error': 'No data loaded'}), 404
-    
     try:
-        df = data_manager.get_data()
-        if df is None or df.empty:
-            return jsonify({'error': 'No data available'}), 404
+        df = get_session_data()
+        if df is None:
+            return jsonify({'error': 'No data loaded'}), 404
             
         # Convert data to JSON-serializable format
         preview_data = []
@@ -1840,8 +1937,13 @@ def get_data_preview():
                     row_dict[col] = str(val)
             preview_data.append(row_dict)
         
-        # Get metadata
-        metadata = data_manager.metadata
+        # Create metadata
+        metadata = {
+            'filename': session.get('filename', 'Unknown'),
+            'last_updated': datetime.datetime.now().isoformat(),
+            'row_count': len(df),
+            'column_count': len(df.columns)
+        }
         
         return jsonify({
             'data': preview_data,
@@ -2105,6 +2207,7 @@ def api_data_skewness():
     
     # Calculate skewness for numeric columns
     skewness = {}
+    skewness_data = []
     numeric_cols = df.select_dtypes(include=['number']).columns
     
     for col in numeric_cols:
@@ -2118,13 +2221,453 @@ def api_data_skewness():
                                 'Moderately left-skewed' if skew_value > -1 else
                                 'Highly left-skewed'
             }
+            # Add to the array format needed by the frontend
+            skewness_data.append({
+                'column': col,
+                'skewness': skew_value,
+                'interpretation': skewness[col]['interpretation']
+            })
         except Exception as e:
             skewness[col] = {
                 'skew': None,
                 'error': str(e)
             }
     
-    return jsonify(skewness)
+    # Sort skewness data by absolute skewness value (descending)
+    skewness_data.sort(key=lambda x: abs(x['skewness']), reverse=True)
+    
+    return jsonify({
+        'skewness': skewness,
+        'skewness_data': skewness_data,
+        'columns': df.columns.tolist()
+    })
+
+@app.route('/api/data/transform', methods=['POST'])
+@csrf.exempt
+def transform_data():
+    """Apply transformations to the dataset (advanced data cleaning)"""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({"error": "No data loaded"}), 404
+        
+        # Get transformation parameters
+        data = request.get_json()
+        print(f"Received transform request data: {data}")
+        
+        if not data:
+            return jsonify({"error": "No transformation parameters provided. Make sure to send a valid JSON body."}), 400
+            
+        # Extract parameters with flexible parsing for multiple possible frontend formats
+        # Handle the transform_form from advanced_data_cleaning.html
+        if 'method' in data:
+            transformation = data.get('method')
+            if transformation == 'yeo-johnson':
+                transformation = 'yeo_johnson'
+            elif transformation == 'box-cox':
+                transformation = 'boxcox'
+        else:
+            transformation = data.get('transformation') or data.get('transform_type') or data.get('type')
+            
+        columns = data.get('columns', []) or data.get('column', [])
+        
+        # Convert single column to list if needed
+        if isinstance(columns, str):
+            columns = [columns]
+        
+        print(f"Parsed transformation: {transformation}, columns: {columns}")
+            
+        if not transformation:
+            return jsonify({
+                "error": "Transformation type not specified",
+                "received_data": data,
+                "help": "Request must include 'transformation', 'transform_type', or 'method' field"
+            }), 400
+            
+        if not columns:
+            return jsonify({
+                "error": "No columns selected for transformation",
+                "received_data": data, 
+                "help": "Request must include 'columns' field with at least one column name"
+            }), 400
+        
+        # Make a copy of the dataframe to avoid modifying the original
+        df_transformed = df.copy()
+        
+        # Apply the transformation
+        applied_transforms = []
+        
+        if transformation == 'log':
+            # Log transformation (with handling of negative and zero values)
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Log transformation can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Handle negative and zero values
+                min_val = df[col].min()
+                if min_val <= 0:
+                    # Shift all values to make the minimum positive
+                    shift = abs(min_val) + 1 if min_val < 0 else 1
+                    df_transformed[col] = np.log(df[col] + shift)
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': f'Applied log transformation with shift of {shift}'
+                    })
+                else:
+                    df_transformed[col] = np.log(df[col])
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': 'Applied log transformation'
+                    })
+        
+        elif transformation == 'sqrt':
+            # Square root transformation (handles negative values by squaring them first)
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Square root transformation can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Handle negative values
+                neg_mask = df[col] < 0
+                if neg_mask.any():
+                    # For negative values, square them first to make them positive
+                    df_transformed.loc[neg_mask, col] = -np.sqrt(df[col][neg_mask] ** 2)
+                    df_transformed.loc[~neg_mask, col] = np.sqrt(df[col][~neg_mask])
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': 'Applied square root transformation (negative values handled)'
+                    })
+                else:
+                    df_transformed[col] = np.sqrt(df[col])
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': 'Applied square root transformation'
+                    })
+        
+        elif transformation == 'standard_scale':
+            # Standardization (mean=0, std=1)
+            from sklearn.preprocessing import StandardScaler
+            scaler = StandardScaler()
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Standardization can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Standardize
+                df_transformed[col] = scaler.fit_transform(df[col].values.reshape(-1, 1)).flatten()
+                applied_transforms.append({
+                    'column': col,
+                    'success': True,
+                    'message': 'Applied standardization (mean=0, std=1)'
+                })
+        
+        elif transformation == 'min_max_scale':
+            # Min-Max scaling (0 to 1)
+            from sklearn.preprocessing import MinMaxScaler
+            scaler = MinMaxScaler()
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Min-Max scaling can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Scale to 0-1 range
+                df_transformed[col] = scaler.fit_transform(df[col].values.reshape(-1, 1)).flatten()
+                applied_transforms.append({
+                    'column': col,
+                    'success': True,
+                    'message': 'Applied Min-Max scaling (0 to 1)'
+                })
+        
+        elif transformation == 'robust_scale':
+            # Robust scaling (using quantiles)
+            from sklearn.preprocessing import RobustScaler
+            scaler = RobustScaler()
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Robust scaling can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Apply robust scaling
+                df_transformed[col] = scaler.fit_transform(df[col].values.reshape(-1, 1)).flatten()
+                applied_transforms.append({
+                    'column': col,
+                    'success': True,
+                    'message': 'Applied robust scaling (using quantiles)'
+                })
+        
+        elif transformation == 'boxcox':
+            # Box-Cox transformation
+            from scipy import stats
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Box-Cox transformation can only be applied to numeric columns'
+                    })
+                    continue
+                
+                # Box-Cox requires all positive values
+                min_val = df[col].min()
+                if min_val <= 0:
+                    shift = abs(min_val) + 1
+                    try:
+                        df_transformed[col], _ = stats.boxcox(df[col] + shift)
+                        applied_transforms.append({
+                            'column': col,
+                            'success': True,
+                            'message': f'Applied Box-Cox transformation with shift of {shift}'
+                        })
+                    except Exception as e:
+                        applied_transforms.append({
+                            'column': col,
+                            'success': False,
+                            'message': f'Error in Box-Cox transformation: {str(e)}'
+                        })
+                else:
+                    try:
+                        df_transformed[col], _ = stats.boxcox(df[col])
+                        applied_transforms.append({
+                            'column': col,
+                            'success': True,
+                            'message': 'Applied Box-Cox transformation'
+                        })
+                    except Exception as e:
+                        applied_transforms.append({
+                            'column': col,
+                            'success': False,
+                            'message': f'Error in Box-Cox transformation: {str(e)}'
+                        })
+        
+        elif transformation == 'yeo_johnson':
+            # Yeo-Johnson transformation
+            from sklearn.preprocessing import PowerTransformer
+            pt = PowerTransformer(method='yeo-johnson')
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Yeo-Johnson transformation can only be applied to numeric columns'
+                    })
+                    continue
+                
+                try:
+                    df_transformed[col] = pt.fit_transform(df[col].values.reshape(-1, 1)).flatten()
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': 'Applied Yeo-Johnson transformation'
+                    })
+                except Exception as e:
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': f'Error in Yeo-Johnson transformation: {str(e)}'
+                    })
+        
+        elif transformation == 'winsorize':
+            # Winsorize outliers
+            from scipy import stats
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Winsorization can only be applied to numeric columns'
+                    })
+                    continue
+                
+                try:
+                    # Winsorize values at 5th and 95th percentiles
+                    df_transformed[col] = stats.mstats.winsorize(df[col], limits=[0.05, 0.05])
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': 'Applied winsorization (5% on each tail)'
+                    })
+                except Exception as e:
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': f'Error in winsorization: {str(e)}'
+                    })
+        
+        elif transformation == 'one_hot_encode':
+            # One-hot encoding
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                
+                # Don't one-hot encode columns with too many categories
+                if df[col].nunique() > 50:
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': f'Column has too many unique values ({df[col].nunique()}) for one-hot encoding'
+                    })
+                    continue
+                
+                try:
+                    # Get dummies and add them to the dataframe
+                    dummies = pd.get_dummies(df[col], prefix=col, drop_first=True)
+                    df_transformed = pd.concat([df_transformed, dummies], axis=1)
+                    
+                    # Keep track of added dummy columns
+                    dummy_cols = dummies.columns.tolist()
+                    
+                    # Drop the original column if all dummies were created successfully
+                    df_transformed = df_transformed.drop(columns=[col])
+                    
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': f'Applied one-hot encoding, added {len(dummy_cols)} dummy variables'
+                    })
+                except Exception as e:
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': f'Error in one-hot encoding: {str(e)}'
+                    })
+        
+        elif transformation == 'bin':
+            # Binning (equal width)
+            num_bins = data.get('num_bins', 5)
+            
+            for col in columns:
+                if col not in df.columns:
+                    continue
+                    
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': 'Binning can only be applied to numeric columns'
+                    })
+                    continue
+                
+                try:
+                    # Create bin edges
+                    bins = pd.cut(df[col], bins=num_bins, labels=False)
+                    df_transformed[f"{col}_binned"] = bins
+                    
+                    applied_transforms.append({
+                        'column': col,
+                        'success': True,
+                        'message': f'Applied equal-width binning with {num_bins} bins'
+                    })
+                except Exception as e:
+                    applied_transforms.append({
+                        'column': col,
+                        'success': False,
+                        'message': f'Error in binning: {str(e)}'
+                    })
+        
+        else:
+            return jsonify({"error": f"Unsupported transformation: {transformation}"}), 400
+        
+        # Generate a unique filename for the transformed data
+        original_filename = session.get('filename', 'data.csv')
+        base_name, file_ext = os.path.splitext(original_filename)
+        unique_filename = f"transformed_{base_name}_{uuid.uuid4().hex}{file_ext}"
+        transformed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        # Save the transformed dataframe
+        if file_ext.lower() == '.csv':
+            df_transformed.to_csv(transformed_filepath, index=False)
+        elif file_ext.lower() in ['.xls', '.xlsx']:
+            df_transformed.to_excel(transformed_filepath, index=False)
+        elif file_ext.lower() == '.json':
+            df_transformed.to_json(transformed_filepath, orient='records')
+        
+        # Update session to use transformed data
+        session['filepath'] = transformed_filepath
+        session['filename'] = f"transformed_{original_filename}"
+        
+        # Store in database
+        session_id = get_session_id()
+        # Get original file id if exists
+        original_file = UploadedFile.query.filter_by(filepath=session.get('filepath')).first()
+        original_id = original_file.id if original_file else None
+        
+        processed_file = ProcessedFile(
+            original_file_id=original_id,
+            filename=f"transformed_{original_filename}",
+            filepath=transformed_filepath,
+            process_type='transformed',
+            session_id=session_id
+        )
+        db.session.add(processed_file)
+        db.session.commit()
+        
+        # Return the result
+        return jsonify({
+            'success': True,
+            'transformations': applied_transforms,
+            'preview': df_transformed.head(10).to_dict(orient='records'),
+            'columns': df_transformed.columns.tolist(),
+            'shape': df_transformed.shape
+        })
+    
+    except Exception as e:
+        print(f"Error in data transformation: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/data/feature-selection', methods=['POST'])
 @csrf.exempt
@@ -2370,6 +2913,370 @@ def api_feature_engineering():
         })
     
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/data/column-stats', methods=['GET'])
+def get_column_stats():
+    """Get statistics for a specific column"""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({'error': 'No data loaded'}), 404
+            
+        column = request.args.get('column')
+        if not column:
+            return jsonify({'error': 'Column parameter is required'}), 400
+            
+        if column not in df.columns:
+            return jsonify({'error': f'Column {column} not found'}), 404
+            
+        # Calculate basic stats
+        stats = {
+            'count': len(df),
+            'missing': int(df[column].isna().sum()),
+            'missing_percent': float(df[column].isna().mean() * 100),
+            'unique': int(df[column].nunique())
+        }
+        
+        # Calculate type-specific stats
+        if pd.api.types.is_numeric_dtype(df[column]):
+            # Numeric column stats
+            stats.update({
+                'min': float(df[column].min()) if not pd.isna(df[column].min()) else None,
+                'max': float(df[column].max()) if not pd.isna(df[column].max()) else None,
+                'mean': float(df[column].mean()) if not pd.isna(df[column].mean()) else None,
+                'median': float(df[column].median()) if not pd.isna(df[column].median()) else None,
+                'std': float(df[column].std()) if not pd.isna(df[column].std()) else None
+            })
+        elif pd.api.types.is_datetime64_dtype(df[column]) or pd.api.types.is_datetime64_ns_dtype(df[column]):
+            # Date column stats
+            min_date = df[column].min()
+            max_date = df[column].max()
+            stats.update({
+                'min': min_date.isoformat() if min_date is not pd.NaT else None,
+                'max': max_date.isoformat() if max_date is not pd.NaT else None,
+                'range': (max_date - min_date).days if max_date is not pd.NaT and min_date is not pd.NaT else None
+            })
+        else:
+            # Categorical column stats - get top values
+            value_counts = df[column].value_counts().head(5)
+            top_values = []
+            
+            for value, count in value_counts.items():
+                top_values.append({
+                    'value': str(value),
+                    'count': int(count),
+                    'percentage': float(count / len(df) * 100)
+                })
+                
+            stats['top_values'] = top_values
+            
+        return jsonify(stats)
+            
+    except Exception as e:
+        print(f"Error getting column stats: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/data/handle-cardinality', methods=['POST'])
+@csrf.exempt
+def handle_cardinality():
+    """Handle high cardinality in categorical variables"""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({"error": "No data loaded"}), 404
+        
+        # Get parameters
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No parameters provided"}), 400
+        
+        max_categories = int(data.get('max_categories', 10))
+        method = data.get('method', 'group_small')
+        
+        # Make a copy of the dataframe
+        df_transformed = df.copy()
+        
+        # Get categorical columns with high cardinality
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+        processed_cols = []
+        
+        for col in categorical_cols:
+            unique_count = df[col].nunique()
+            if unique_count > max_categories:
+                if method == 'group_small':
+                    # Group small categories into 'Other'
+                    value_counts = df[col].value_counts()
+                    top_categories = value_counts.index[:max_categories].tolist()
+                    
+                    # Replace less frequent categories with 'Other'
+                    df_transformed[col] = df[col].apply(lambda x: x if x in top_categories else 'Other')
+                    processed_cols.append(col)
+                    
+                elif method == 'target_encoding':
+                    # For target encoding, we'd need a target variable
+                    # This is a simplified version that uses a mean encoding of some column
+                    # In a real implementation, you'd use the actual target variable
+                    
+                    # Find a numeric column to use as target
+                    numeric_cols = df.select_dtypes(include=['number']).columns
+                    if len(numeric_cols) > 0:
+                        target_col = numeric_cols[0]
+                        # Get mean of target for each category
+                        means = df.groupby(col)[target_col].mean().to_dict()
+                        # Replace categories with their mean target value
+                        df_transformed[col + '_encoded'] = df[col].map(means)
+                        processed_cols.append(col)
+        
+        # Generate a unique filename
+        original_filename = session.get('filename', 'data.csv')
+        base_name, file_ext = os.path.splitext(original_filename)
+        unique_filename = f"cardinality_{base_name}_{uuid.uuid4().hex}{file_ext}"
+        processed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+        
+        # Save processed dataframe
+        if file_ext.lower() == '.csv':
+            df_transformed.to_csv(processed_filepath, index=False)
+        elif file_ext.lower() in ['.xls', '.xlsx']:
+            df_transformed.to_excel(processed_filepath, index=False)
+        elif file_ext.lower() == '.json':
+            df_transformed.to_json(processed_filepath, orient='records')
+        
+        # Update session
+        session['filepath'] = processed_filepath
+        session['filename'] = f"cardinality_{original_filename}"
+        
+        # Store in database
+        session_id = get_session_id()
+        original_file = UploadedFile.query.filter_by(filepath=session.get('filepath')).first()
+        original_id = original_file.id if original_file else None
+        
+        processed_file = ProcessedFile(
+            original_file_id=original_id,
+            filename=f"cardinality_{original_filename}",
+            filepath=processed_filepath,
+            process_type='cardinality',
+            session_id=session_id
+        )
+        db.session.add(processed_file)
+        db.session.commit()
+        
+        return jsonify({
+            'success': True,
+            'processed_cols': processed_cols,
+            'preview': df_transformed.head(5).to_dict(orient='records'),
+            'columns': df_transformed.columns.tolist()
+        })
+        
+    except Exception as e:
+        print(f"Error handling cardinality: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/data/impute', methods=['POST'])
+@csrf.exempt
+def impute_missing_values():
+    """Impute missing values using advanced methods"""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({"error": "No data loaded"}), 404
+        
+        # Get parameters
+        data = request.get_json()
+        print(f"Received imputation request data: {data}")
+        
+        if not data:
+            return jsonify({"error": "No parameters provided"}), 400
+        
+        strategy = data.get('strategy', 'knn')
+        n_neighbors = int(data.get('n_neighbors', 5))
+        columns = data.get('columns', [])
+        
+        # Convert single column to list if needed
+        if isinstance(columns, str):
+            columns = [columns]
+        
+        print(f"Imputation request: strategy={strategy}, columns={columns}")
+        
+        if not columns:
+            return jsonify({"error": "No columns selected for imputation"}), 400
+        
+        # Make a copy of the dataframe
+        df_transformed = df.copy()
+        
+        # Check all column missing values
+        missing_values_info = {}
+        for col in df.columns:
+            missing_count = df[col].isna().sum()
+            missing_values_info[col] = {
+                'count': int(missing_count),
+                'percentage': float(missing_count / len(df) * 100)
+            }
+        
+        print(f"Missing values in dataset: {missing_values_info}")
+        
+        # Verify that columns exist and check for missing values
+        missing_cols = []
+        no_missing_cols = []
+        for col in columns:
+            if col not in df.columns:
+                return jsonify({"error": f"Column {col} not found in dataset"}), 400
+            
+            missing_count = df[col].isna().sum()
+            if missing_count > 0:
+                missing_cols.append(col)
+            else:
+                no_missing_cols.append(col)
+        
+        # If none of the selected columns have missing values, give a helpful message
+        if not missing_cols:
+            print(f"No missing values found in columns: {columns}")
+            return jsonify({
+                "message": "Selected columns don't have missing values. No imputation needed.",
+                "imputed_cols": [],
+                "no_missing_cols": no_missing_cols,
+                "success": True
+            })
+        
+        # Log what we're imputing
+        print(f"Columns with missing values to impute: {missing_cols}")
+        print(f"Columns without missing values (skipping): {no_missing_cols}")
+        
+        # Apply imputation
+        imputed_cols = []
+        
+        # Add a special case for if there are missing values in the dataset but not in selected columns
+        all_missing = sum(df[col].isna().sum() for col in df.columns)
+        if all_missing > 0 and not missing_cols:
+            # There are missing values but not in the selected columns
+            return jsonify({
+                "message": f"Selected columns don't have missing values, but dataset has {all_missing} missing values in other columns.",
+                "missing_info": missing_values_info,
+                "success": True
+            })
+        
+        if strategy == 'knn':
+            try:
+                from sklearn.impute import KNNImputer
+                
+                # Select only numeric columns for KNN imputation
+                numeric_cols = [col for col in missing_cols if pd.api.types.is_numeric_dtype(df[col])]
+                non_numeric = [col for col in missing_cols if col not in numeric_cols]
+                
+                if non_numeric:
+                    print(f"Skipping non-numeric columns for KNN imputation: {non_numeric}")
+                
+                if len(numeric_cols) > 0:
+                    # Create and fit the imputer
+                    imputer = KNNImputer(n_neighbors=n_neighbors)
+                    # Impute values
+                    imputed_data = imputer.fit_transform(df[numeric_cols])
+                    
+                    # Update dataframe with imputed values
+                    for i, col in enumerate(numeric_cols):
+                        df_transformed[col] = imputed_data[:, i]
+                        imputed_cols.append(col)
+                
+                # For non-numeric columns, use simple imputation
+                for col in non_numeric:
+                    if df[col].dtype == 'object' or df[col].dtype.name == 'category':
+                        # Use most frequent value for categorical
+                        most_freq = df[col].mode()[0]
+                        df_transformed[col] = df[col].fillna(most_freq)
+                        imputed_cols.append(col)
+            except Exception as e:
+                print(f"KNN imputation error: {str(e)}")
+                return jsonify({"error": f"Error in KNN imputation: {str(e)}"}), 500
+                
+        elif strategy == 'iterative':
+            try:
+                from sklearn.experimental import enable_iterative_imputer
+                from sklearn.impute import IterativeImputer
+                
+                # Select only numeric columns for iterative imputation
+                numeric_cols = [col for col in missing_cols if pd.api.types.is_numeric_dtype(df[col])]
+                non_numeric = [col for col in missing_cols if col not in numeric_cols]
+                
+                if non_numeric:
+                    print(f"Skipping non-numeric columns for iterative imputation: {non_numeric}")
+                
+                if len(numeric_cols) > 0:
+                    # Create and fit the imputer
+                    imputer = IterativeImputer(max_iter=10, random_state=42)
+                    # Impute values
+                    imputed_data = imputer.fit_transform(df[numeric_cols])
+                    
+                    # Update dataframe with imputed values
+                    for i, col in enumerate(numeric_cols):
+                        df_transformed[col] = imputed_data[:, i]
+                        imputed_cols.append(col)
+                
+                # For non-numeric columns, use simple imputation
+                for col in non_numeric:
+                    if df[col].dtype == 'object' or df[col].dtype.name == 'category':
+                        # Use most frequent value for categorical
+                        most_freq = df[col].mode()[0]
+                        df_transformed[col] = df[col].fillna(most_freq)
+                        imputed_cols.append(col)
+            except Exception as e:
+                print(f"Iterative imputation error: {str(e)}")
+                return jsonify({"error": f"Error in iterative imputation: {str(e)}"}), 500
+                
+        else:
+            return jsonify({"error": f"Unsupported imputation strategy: {strategy}"}), 400
+        
+        # Only save file if imputation actually happened
+        if imputed_cols:
+            # Generate a unique filename
+            original_filename = session.get('filename', 'data.csv')
+            base_name, file_ext = os.path.splitext(original_filename)
+            unique_filename = f"imputed_{base_name}_{uuid.uuid4().hex}{file_ext}"
+            processed_filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Save processed dataframe
+            if file_ext.lower() == '.csv':
+                df_transformed.to_csv(processed_filepath, index=False)
+            elif file_ext.lower() in ['.xls', '.xlsx']:
+                df_transformed.to_excel(processed_filepath, index=False)
+            elif file_ext.lower() == '.json':
+                df_transformed.to_json(processed_filepath, orient='records')
+            
+            # Update session
+            session['filepath'] = processed_filepath
+            session['filename'] = f"imputed_{original_filename}"
+            
+            # Store in database
+            session_id = get_session_id()
+            original_file = UploadedFile.query.filter_by(filepath=session.get('filepath')).first()
+            original_id = original_file.id if original_file else None
+            
+            processed_file = ProcessedFile(
+                original_file_id=original_id,
+                filename=f"imputed_{original_filename}",
+                filepath=processed_filepath,
+                process_type='imputed',
+                session_id=session_id
+            )
+            db.session.add(processed_file)
+            db.session.commit()
+            
+            return jsonify({
+                'success': True,
+                'imputed_cols': imputed_cols,
+                'no_missing_cols': no_missing_cols,
+                'preview': df_transformed.head(5).to_dict(orient='records'),
+                'message': f"Successfully imputed {len(imputed_cols)} columns"
+            })
+        else:
+            return jsonify({
+                'success': True,
+                'message': "No imputation needed or no suitable columns for imputation",
+                'imputed_cols': [],
+                'no_missing_cols': no_missing_cols
+            })
+        
+    except Exception as e:
+        print(f"Error in data imputation: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
