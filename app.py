@@ -297,6 +297,34 @@ def apply_cleaning(df, cleaning_actions):
 # Routes
 @app.route('/')
 def index():
+    # Initialize dashboard stats if they don't exist
+    if 'total_uploads' not in session:
+        session['total_uploads'] = 0
+    if 'cleaning_operations' not in session:
+        session['cleaning_operations'] = 0
+    if 'visualizations' not in session:
+        session['visualizations'] = 0
+    if 'ml_models' not in session:
+        session['ml_models'] = 0
+    
+    # Initialize progress stats if they don't exist
+    if 'cleaning_progress' not in session:
+        session['cleaning_progress'] = 0
+    if 'analysis_progress' not in session:
+        session['analysis_progress'] = 0
+    if 'visualization_progress' not in session:
+        session['visualization_progress'] = 0
+    if 'ml_progress' not in session:
+        session['ml_progress'] = 0
+    
+    # Sample recent files for display
+    if 'recent_files' not in session:
+        session['recent_files'] = [
+            {'name': 'Sample Sales Data.csv', 'type': 'csv', 'date': 'Today'},
+            {'name': 'Inventory Analysis.xlsx', 'type': 'excel', 'date': 'Yesterday'},
+            {'name': 'Customer Data.json', 'type': 'json', 'date': '3 days ago'}
+        ]
+    
     return render_template('home.html')
 
 @app.route('/upload', methods=['GET', 'POST'])
@@ -564,6 +592,7 @@ def clv_analysis():
         return render_template('clv_analysis.html', 
                               has_data=False, 
                               message="An error occurred. Please upload a dataset first or load sample data.")
+
 
 @app.route('/data_visualization', methods=['GET', 'POST'])
 def data_visualization():
@@ -1367,10 +1396,39 @@ def manage_files():
     
     # Get processed files
     processed_files = ProcessedFile.query.filter_by(session_id=session_id).order_by(ProcessedFile.date_processed.desc()).all()
+
+    # Combine all files for a unified table
+    all_files = []
+    for f in uploaded_files:
+        file_path = f.filepath
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        all_files.append({
+            'id': f.id,
+            'filename': f.filename,
+            'type': f.filename.split('.')[-1].lower(),
+            'date': f.date_uploaded,
+            'status': 'Uploaded',
+            'file_type': 'uploaded',
+            'size': file_size
+        })
+    for f in processed_files:
+        file_path = f.filepath
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        all_files.append({
+            'id': f.id,
+            'filename': f.filename,
+            'type': f.filename.split('.')[-1].lower(),
+            'date': f.date_processed,
+            'status': f.process_type.capitalize() if f.process_type else 'Processed',
+            'file_type': 'processed',
+            'size': file_size
+        })
+    all_files.sort(key=lambda x: x['date'], reverse=True)
     
     return render_template('manage_files.html', 
                           uploaded_files=uploaded_files, 
                           processed_files=processed_files,
+                          all_files=all_files,
                           current_file=session.get('filepath'))
 
 @app.route('/switch_file/<int:file_id>/<file_type>')
@@ -3280,4 +3338,4 @@ def impute_missing_values():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=8080) 
+    app.run(debug=True, host='0.0.0.0', port=5000) 
