@@ -10,59 +10,46 @@
 
 <div class="card mb-4">
     <div class="card-header bg-white">
-        <h4 class="mb-0"><i class="fas fa-history text-secondary me-2"></i>Recent Files</h4>
+        <h4 class="mb-0"><i class="fas fa-list text-info me-2"></i>All Files (Combined)</h4>
     </div>
     <div class="card-body">
-        {% if files %}
+        {% if all_files %}
             <div class="table-container">
                 <table class="table table-hover">
                     <thead>
                         <tr>
-                            <th width="5%">#</th>
-                            <th width="40%">Filename</th>
-                            <th width="15%">Type</th>
-                            <th width="15%">Date</th>
-                            <th width="25%">Actions</th>
+                            <th>#</th>
+                            <th>Filename</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Date</th>
+                            <th>Size</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for file in files %}
+                        {% for file in all_files %}
                         <tr>
                             <td>{{ loop.index }}</td>
-                            <td>
-                                <div class="d-flex align-items-center">
-                                    <div class="me-3">
-                                        {% if file.type == 'csv' %}
-                                            <i class="fas fa-file-csv fa-2x text-primary"></i>
-                                        {% elif file.type == 'excel' %}
-                                            <i class="fas fa-file-excel fa-2x text-success"></i>
-                                        {% elif file.type == 'json' %}
-                                            <i class="fas fa-file-code fa-2x text-warning"></i>
-                                        {% else %}
-                                            <i class="fas fa-file fa-2x text-secondary"></i>
-                                        {% endif %}
-                                    </div>
-                                    <div>
-                                        <div class="fw-bold">{{ file.name }}</div>
-                                        <small class="text-muted">Last modified: {{ file.date }}</small>
-                                    </div>
-                                </div>
-                            </td>
-                            <td>
-                                <span class="badge bg-light text-dark">{{ file.type.upper() }}</span>
-                            </td>
-                            <td>{{ file.date }}</td>
+                            <td>{{ file.filename }}</td>
+                            <td>{{ file.type|upper }}</td>
+                            <td>{{ file.status }}</td>
+                            <td>{{ file.date.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>{{ file.size|filesizeformat }}</td>
                             <td>
                                 <div class="btn-group" role="group">
-                                    <a href="#" class="btn btn-sm btn-outline-primary">
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type=file.file_type) }}" class="btn btn-sm btn-outline-primary">
                                         <i class="fas fa-eye me-1"></i> View
                                     </a>
-                                    <a href="#" class="btn btn-sm btn-outline-success">
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type=file.file_type) }}" class="btn btn-sm btn-outline-success">
                                         <i class="fas fa-edit me-1"></i> Clean
                                     </a>
-                                    <button type="button" class="btn btn-sm btn-outline-danger">
+                                    <a href="{{ url_for('delete_file', file_id=file.id, file_type=file.file_type) }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this file?');">
                                         <i class="fas fa-trash me-1"></i> Delete
-                                    </button>
+                                    </a>
+                                    <a href="{{ url_for('api_download_data') }}" class="btn btn-sm btn-outline-secondary">
+                                        <i class="fas fa-download me-1"></i> Download
+                                    </a>
                                 </div>
                             </td>
                         </tr>
@@ -72,7 +59,153 @@
             </div>
         {% else %}
             <div class="alert alert-info">
-                <i class="fas fa-info-circle me-2"></i> No recent files. Upload data or use sample data to get started.
+                <i class="fas fa-info-circle me-2"></i> No files found. Upload data or use sample data to get started.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-white">
+        <h4 class="mb-0"><i class="fas fa-history text-secondary me-2"></i>Uploaded Files</h4>
+    </div>
+    <div class="card-body">
+        {% if uploaded_files %}
+            <div class="table-container">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th width="5%">#</th>
+                            <th width="40%">Filename</th>
+                            <th width="15%">Type</th>
+                            <th width="15%">Date Uploaded</th>
+                            <th width="25%">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for file in uploaded_files %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        {% set ext = file.filename.split('.')[-1].lower() %}
+                                        {% if ext == 'csv' %}
+                                            <i class="fas fa-file-csv fa-2x text-primary"></i>
+                                        {% elif ext in ['xls', 'xlsx'] %}
+                                            <i class="fas fa-file-excel fa-2x text-success"></i>
+                                        {% elif ext == 'json' %}
+                                            <i class="fas fa-file-code fa-2x text-warning"></i>
+                                        {% else %}
+                                            <i class="fas fa-file fa-2x text-secondary"></i>
+                                        {% endif %}
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold">{{ file.filename }}</div>
+                                        <small class="text-muted">Last modified: {{ file.date_uploaded.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark">
+                                    {% if ext == 'csv' %}CSV{% elif ext in ['xls', 'xlsx'] %}EXCEL{% elif ext == 'json' %}JSON{% else %}OTHER{% endif %}
+                                </span>
+                            </td>
+                            <td>{{ file.date_uploaded.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type='uploaded') }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye me-1"></i> View
+                                    </a>
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type='uploaded') }}" class="btn btn-sm btn-outline-success">
+                                        <i class="fas fa-edit me-1"></i> Clean
+                                    </a>
+                                    <a href="{{ url_for('delete_file', file_id=file.id, file_type='uploaded') }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this file?');">
+                                        <i class="fas fa-trash me-1"></i> Delete
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> No uploaded files. Upload data or use sample data to get started.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header bg-white">
+        <h4 class="mb-0"><i class="fas fa-history text-success me-2"></i>Processed Files</h4>
+    </div>
+    <div class="card-body">
+        {% if processed_files %}
+            <div class="table-container">
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th width="5%">#</th>
+                            <th width="40%">Filename</th>
+                            <th width="15%">Type</th>
+                            <th width="15%">Date Processed</th>
+                            <th width="25%">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for file in processed_files %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td>
+                                <div class="d-flex align-items-center">
+                                    <div class="me-3">
+                                        {% set ext = file.filename.split('.')[-1].lower() %}
+                                        {% if ext == 'csv' %}
+                                            <i class="fas fa-file-csv fa-2x text-primary"></i>
+                                        {% elif ext in ['xls', 'xlsx'] %}
+                                            <i class="fas fa-file-excel fa-2x text-success"></i>
+                                        {% elif ext == 'json' %}
+                                            <i class="fas fa-file-code fa-2x text-warning"></i>
+                                        {% else %}
+                                            <i class="fas fa-file fa-2x text-secondary"></i>
+                                        {% endif %}
+                                    </div>
+                                    <div>
+                                        <div class="fw-bold">{{ file.filename }}</div>
+                                        <small class="text-muted">Last modified: {{ file.date_processed.strftime('%Y-%m-%d %H:%M') }}</small>
+                                    </div>
+                                </div>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark">
+                                    {% if ext == 'csv' %}CSV{% elif ext in ['xls', 'xlsx'] %}EXCEL{% elif ext == 'json' %}JSON{% else %}OTHER{% endif %}
+                                </span>
+                            </td>
+                            <td>{{ file.date_processed.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <div class="btn-group" role="group">
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type='processed') }}" class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-eye me-1"></i> View
+                                    </a>
+                                    <a href="{{ url_for('switch_file', file_id=file.id, file_type='processed') }}" class="btn btn-sm btn-outline-success">
+                                        <i class="fas fa-edit me-1"></i> Clean
+                                    </a>
+                                    <a href="{{ url_for('delete_file', file_id=file.id, file_type='processed') }}" class="btn btn-sm btn-outline-danger" onclick="return confirm('Are you sure you want to delete this file?');">
+                                        <i class="fas fa-trash me-1"></i> Delete
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="alert alert-info">
+                <i class="fas fa-info-circle me-2"></i> No processed files yet.
             </div>
         {% endif %}
     </div>
