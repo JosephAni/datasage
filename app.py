@@ -1396,10 +1396,39 @@ def manage_files():
     
     # Get processed files
     processed_files = ProcessedFile.query.filter_by(session_id=session_id).order_by(ProcessedFile.date_processed.desc()).all()
+
+    # Combine all files for a unified table
+    all_files = []
+    for f in uploaded_files:
+        file_path = f.filepath
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        all_files.append({
+            'id': f.id,
+            'filename': f.filename,
+            'type': f.filename.split('.')[-1].lower(),
+            'date': f.date_uploaded,
+            'status': 'Uploaded',
+            'file_type': 'uploaded',
+            'size': file_size
+        })
+    for f in processed_files:
+        file_path = f.filepath
+        file_size = os.path.getsize(file_path) if os.path.exists(file_path) else 0
+        all_files.append({
+            'id': f.id,
+            'filename': f.filename,
+            'type': f.filename.split('.')[-1].lower(),
+            'date': f.date_processed,
+            'status': f.process_type.capitalize() if f.process_type else 'Processed',
+            'file_type': 'processed',
+            'size': file_size
+        })
+    all_files.sort(key=lambda x: x['date'], reverse=True)
     
     return render_template('manage_files.html', 
                           uploaded_files=uploaded_files, 
                           processed_files=processed_files,
+                          all_files=all_files,
                           current_file=session.get('filepath'))
 
 @app.route('/switch_file/<int:file_id>/<file_type>')

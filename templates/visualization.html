@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="main-header">Data Visualization</h1>
+        <p class="lead">Explore your data through interactive visualizations.</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-3">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Visualization Options</h5>
+            </div>
+            <div class="card-body">
+                <form id="visualizationForm">
+                    <div class="mb-3">
+                        <label for="chartType" class="form-label">Chart Type</label>
+                        <select class="form-select" id="chartType" name="chart_type">
+                            <option value="correlation">Correlation Heatmap</option>
+                            <option value="distribution">Distribution Plot</option>
+                            <option value="box">Box Plot</option>
+                            <option value="scatter">Scatter Plot</option>
+                            <option value="bar">Bar Chart</option>
+                            <option value="line">Line Chart</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="xAxis" class="form-label">X-Axis</label>
+                        <select class="form-select" id="xAxis" name="x_axis">
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="yAxisContainer">
+                        <label for="yAxis" class="form-label">Y-Axis</label>
+                        <select class="form-select" id="yAxis" name="y_axis">
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="colorAxisContainer" style="display: none;">
+                        <label for="colorAxis" class="form-label">Color By</label>
+                        <select class="form-select" id="colorAxis" name="color_axis">
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Generate Visualization</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-9">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Visualization</h5>
+            </div>
+            <div class="card-body">
+                <div id="visualizationContainer">
+                    <div id="loadingIndicator" class="text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Generating visualization...</p>
+                    </div>
+                    <div id="chartContainer">
+                        <canvas id="visualizationChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let currentChart = null;
+
+// Function to populate column selectors
+async function populateColumnSelectors() {
+    try {
+        const response = await fetch('/api/data/columns');
+        const data = await response.json();
+        
+        if (response.ok) {
+            const columns = data.columns;
+            const numericColumns = data.numeric_columns;
+            
+            // Populate all selectors with all columns
+            ['xAxis', 'yAxis', 'colorAxis'].forEach(selectorId => {
+                const selector = document.getElementById(selectorId);
+                selector.innerHTML = columns.map(col => 
+                    `<option value="${col}">${col}</option>`
+                ).join('');
+            });
+            
+            // Update visibility of selectors based on chart type
+            updateSelectorVisibility('correlation');
+        } else {
+            alert('Error loading column information');
+        }
+    } catch (error) {
+        alert('Error loading column information: ' + error.message);
+    }
+}
+
+// Function to update selector visibility based on chart type
+function updateSelectorVisibility(chartType) {
+    const yAxisContainer = document.getElementById('yAxisContainer');
+    const colorAxisContainer = document.getElementById('colorAxisContainer');
+    
+    switch (chartType) {
+        case 'correlation':
+            yAxisContainer.style.display = 'none';
+            colorAxisContainer.style.display = 'none';
+            break;
+        case 'distribution':
+            yAxisContainer.style.display = 'none';
+            colorAxisContainer.style.display = 'block';
+            break;
+        default:
+            yAxisContainer.style.display = 'block';
+            colorAxisContainer.style.display = 'block';
+    }
+}
+
+// Handle chart type change
+document.getElementById('chartType').addEventListener('change', function() {
+    updateSelectorVisibility(this.value);
+});
+
+// Handle form submission
+document.getElementById('visualizationForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        chart_type: document.getElementById('chartType').value,
+        x_axis: document.getElementById('xAxis').value,
+        y_axis: document.getElementById('yAxis').value,
+        color_axis: document.getElementById('colorAxis').value
+    };
+    
+    // Show loading indicator
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('chartContainer').style.display = 'none';
+    
+    try {
+        const response = await fetch('/visualize', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Destroy existing chart if it exists
+            if (currentChart) {
+                currentChart.destroy();
+            }
+            
+            // Create new chart
+            const ctx = document.getElementById('visualizationChart').getContext('2d');
+            currentChart = new Chart(ctx, {
+                type: data.chart_type,
+                data: data.chart_data,
+                options: data.chart_options
+            });
+            
+            // Show chart container
+            document.getElementById('chartContainer').style.display = 'block';
+        } else {
+            alert(data.error || 'Error generating visualization');
+        }
+    } catch (error) {
+        alert('Error generating visualization: ' + error.message);
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+    }
+});
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    populateColumnSelectors();
+});
+</script>
+{% endblock %} 

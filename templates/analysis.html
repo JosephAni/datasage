@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="main-header">Data Analysis</h1>
+        <p class="lead">Analyze your data and generate insights.</p>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Analysis Options</h5>
+            </div>
+            <div class="card-body">
+                <form id="analysisForm">
+                    <div class="mb-3">
+                        <label for="analysisType" class="form-label">Analysis Type</label>
+                        <select class="form-select" id="analysisType" name="analysis_type">
+                            <option value="summary">Data Summary</option>
+                            <option value="correlation">Correlation Analysis</option>
+                            <option value="forecast">Demand Forecasting</option>
+                            <option value="optimization">Inventory Optimization</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="targetColumnContainer">
+                        <label for="targetColumn" class="form-label">Target Column</label>
+                        <select class="form-select" id="targetColumn" name="target_column">
+                            <!-- Will be populated dynamically -->
+                        </select>
+                    </div>
+
+                    <div class="mb-3" id="forecastPeriodContainer" style="display: none;">
+                        <label for="forecastPeriod" class="form-label">Forecast Period (days)</label>
+                        <input type="number" class="form-control" id="forecastPeriod" name="forecast_period" min="1" value="30">
+                    </div>
+
+                    <div class="mb-3" id="optimizationParamsContainer" style="display: none;">
+                        <label for="serviceLevel" class="form-label">Service Level (%)</label>
+                        <input type="number" class="form-control" id="serviceLevel" name="service_level" min="0" max="100" value="95">
+                        
+                        <label for="leadTime" class="form-label" class="mt-2">Lead Time (days)</label>
+                        <input type="number" class="form-control" id="leadTime" name="lead_time" min="0" value="7">
+                        
+                        <label for="holdingCost" class="form-label" class="mt-2">Holding Cost (%)</label>
+                        <input type="number" class="form-control" id="holdingCost" name="holding_cost" min="0" value="20">
+                    </div>
+
+                    <button type="submit" class="btn btn-primary">Run Analysis</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="card-title mb-0">Analysis Results</h5>
+            </div>
+            <div class="card-body">
+                <div id="analysisContainer">
+                    <div id="loadingIndicator" class="text-center" style="display: none;">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <p class="mt-2">Running analysis...</p>
+                    </div>
+                    
+                    <div id="resultsContainer">
+                        <!-- Results will be displayed here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Function to populate column selectors
+async function populateColumnSelectors() {
+    try {
+        const response = await fetch('/api/data/columns');
+        const data = await response.json();
+        
+        if (response.ok) {
+            const columns = data.columns;
+            const numericColumns = data.numeric_columns;
+            
+            // Populate target column selector with numeric columns
+            const targetColumn = document.getElementById('targetColumn');
+            targetColumn.innerHTML = numericColumns.map(col => 
+                `<option value="${col}">${col}</option>`
+            ).join('');
+            
+            // Update visibility of containers based on analysis type
+            updateContainerVisibility('summary');
+        } else {
+            alert('Error loading column information');
+        }
+    } catch (error) {
+        alert('Error loading column information: ' + error.message);
+    }
+}
+
+// Function to update container visibility based on analysis type
+function updateContainerVisibility(analysisType) {
+    const targetColumnContainer = document.getElementById('targetColumnContainer');
+    const forecastPeriodContainer = document.getElementById('forecastPeriodContainer');
+    const optimizationParamsContainer = document.getElementById('optimizationParamsContainer');
+    
+    switch (analysisType) {
+        case 'summary':
+            targetColumnContainer.style.display = 'none';
+            forecastPeriodContainer.style.display = 'none';
+            optimizationParamsContainer.style.display = 'none';
+            break;
+        case 'forecast':
+            targetColumnContainer.style.display = 'block';
+            forecastPeriodContainer.style.display = 'block';
+            optimizationParamsContainer.style.display = 'none';
+            break;
+        case 'optimization':
+            targetColumnContainer.style.display = 'block';
+            forecastPeriodContainer.style.display = 'none';
+            optimizationParamsContainer.style.display = 'block';
+            break;
+        default:
+            targetColumnContainer.style.display = 'block';
+            forecastPeriodContainer.style.display = 'none';
+            optimizationParamsContainer.style.display = 'none';
+    }
+}
+
+// Handle analysis type change
+document.getElementById('analysisType').addEventListener('change', function() {
+    updateContainerVisibility(this.value);
+});
+
+// Handle form submission
+document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = {
+        analysis_type: document.getElementById('analysisType').value,
+        target_column: document.getElementById('targetColumn').value,
+        forecast_period: document.getElementById('forecastPeriod').value,
+        service_level: document.getElementById('serviceLevel').value,
+        lead_time: document.getElementById('leadTime').value,
+        holding_cost: document.getElementById('holdingCost').value
+    };
+    
+    // Show loading indicator
+    document.getElementById('loadingIndicator').style.display = 'block';
+    document.getElementById('resultsContainer').innerHTML = '';
+    
+    try {
+        const response = await fetch('/analyze', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Display results
+            const resultsContainer = document.getElementById('resultsContainer');
+            
+            if (data.summary) {
+                // Display summary statistics
+                resultsContainer.innerHTML = `
+                    <h5>Summary Statistics</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(data.summary).map(([key, value]) => `
+                                    <tr>
+                                        <td>${key}</td>
+                                        <td>${value}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            if (data.forecast) {
+                // Display forecast results
+                resultsContainer.innerHTML += `
+                    <h5 class="mt-4">Forecast Results</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Forecast</th>
+                                    <th>Lower Bound</th>
+                                    <th>Upper Bound</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.forecast.map(row => `
+                                    <tr>
+                                        <td>${row.date}</td>
+                                        <td>${row.forecast.toFixed(2)}</td>
+                                        <td>${row.lower_bound.toFixed(2)}</td>
+                                        <td>${row.upper_bound.toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+            
+            if (data.optimization) {
+                // Display optimization results
+                resultsContainer.innerHTML += `
+                    <h5 class="mt-4">Optimization Results</h5>
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${Object.entries(data.optimization).map(([key, value]) => `
+                                    <tr>
+                                        <td>${key}</td>
+                                        <td>${value}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                `;
+            }
+        } else {
+            alert(data.error || 'Error running analysis');
+        }
+    } catch (error) {
+        alert('Error running analysis: ' + error.message);
+    } finally {
+        document.getElementById('loadingIndicator').style.display = 'none';
+    }
+});
+
+// Initialize the page
+document.addEventListener('DOMContentLoaded', function() {
+    populateColumnSelectors();
+});
+</script>
+{% endblock %} 
