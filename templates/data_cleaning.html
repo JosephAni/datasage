@@ -255,197 +255,126 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-function generateDataSummary(data) {
+function generateDataSummary() { // No longer needs to accept data as argument
     const summaryLoading = document.getElementById('summary-loading');
     const summaryContent = document.getElementById('summary-content');
     const summaryError = document.getElementById('summary-error');
-    
+
     summaryLoading.style.display = 'block';
     summaryContent.style.display = 'none';
     summaryError.style.display = 'none';
-    
-    try {
-        // Use the data types provided by the API if available
-        const columnTypes = data.dtypes || {};
-        
-        // If dtypes not provided, infer from preview data
-        if (!data.dtypes) {
-            data.columns.forEach(column => {
-                // Determine column type based on first non-null value
-                const nonNullValue = data.preview.find(row => row[column] !== null)?.[column];
-                if (nonNullValue === undefined) {
-                    columnTypes[column] = 'unknown';
-                } else if (!isNaN(nonNullValue) && typeof nonNullValue !== 'boolean') {
-                    columnTypes[column] = 'numeric';
-                } else if (typeof nonNullValue === 'string' && 
-                          (nonNullValue.match(/^\d{4}-\d{2}-\d{2}/) || 
-                           nonNullValue.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}/))) {
-                    columnTypes[column] = 'datetime';
-                } else {
-                    columnTypes[column] = 'categorical';
-                }
-            });
+
+    fetch('/api/data_summary') // Make GET request to the new endpoint
+    .then(response => {
+        if (!response.ok) {
+            throw new Error('Failed to fetch data summary');
         }
-        
-        // Count types based on dtype strings
-        const numericCount = Object.values(columnTypes).filter(t => 
-            t.includes('int') || t.includes('float') || t.includes('number')).length;
-        const datetimeCount = Object.values(columnTypes).filter(t => 
-            t.includes('date') || t.includes('time')).length;
-        const categoricalCount = Object.values(columnTypes).filter(t => 
-            t.includes('object') || t.includes('category') || t.includes('bool')).length;
-        
-        // Display column summary
+        return response.json();
+    })
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        // Now, use the 'data' object (which contains the summary statistics from the backend)
+        // to populate the HTML elements in the Data Summary section.
+        // You'll use the structure of the JSON data returned by the backend endpoint.
+
         const columnSummary = document.getElementById('column-summary');
+        // Example of populating column summary:
         columnSummary.innerHTML = `
-            <p>Total Columns: ${data.columns.length}</p>
-            <p>Numeric Columns: ${numericCount}</p>
-            <p>Categorical Columns: ${categoricalCount}</p>
-            <p>Datetime Columns: ${datetimeCount}</p>
+            <p>Total Columns: ${data.column_count}</p>
+            <p>Row Count: ${data.row_count}</p>
+            <!-- Add other column type counts if needed -->
         `;
-        
-        // Use missing values data if provided in API response
-        // Otherwise, calculate from preview data (less accurate)
-        let missingValues = {};
-        
-        if (data.missing_values) {
-            missingValues = data.missing_values;
-        } else {
-            data.columns.forEach(column => {
-                const nullCount = data.preview.filter(row => row[column] === null).length;
-                missingValues[column] = {
-                    count: nullCount,
-                    percentage: (nullCount / data.preview.length) * 100
-                };
-            });
-        }
-        
-        // Display missing values summary
+
         const missingSummary = document.getElementById('missing-summary');
-        missingSummary.innerHTML = '';
-        
-        // If we have column_stats
-        if (data.columns_stats) {
-            const totalMissingCount = Object.values(data.columns_stats)
-                .reduce((sum, col) => sum + (col.missing || 0), 0);
-                
-            const missingColumns = Object.keys(data.columns_stats)
-                .filter(col => data.columns_stats[col].missing > 0);
-            
-            missingSummary.innerHTML = `
-                <p>Total Missing Values: ${totalMissingCount}</p>
-                <p>Columns with Missing Values: ${missingColumns.length}</p>
-            `;
-            
-            if (missingColumns.length > 0) {
-                const missingList = document.createElement('ul');
-                missingColumns.sort((a, b) => data.columns_stats[b].missing - data.columns_stats[a].missing)
-                    .slice(0, 5)  // Show top 5 columns with most missing values
-                    .forEach(column => {
-                        const stats = data.columns_stats[column];
-                        const percent = ((stats.missing / data.row_count) * 100).toFixed(2);
-                        const li = document.createElement('li');
-                        li.textContent = `${column}: ${stats.missing} (${percent}%)`;
-                        missingList.appendChild(li);
-                    });
-                missingSummary.appendChild(missingList);
-            }
-        } else {
-            // Fallback if detailed stats not available
-            missingSummary.innerHTML = `
-                <p>Missing values information not available in preview.</p>
-                <p>Please apply data cleaning to generate full statistics.</p>
-            `;
-        }
-        
-        // Display numeric columns summary
-        const numericSummary = document.getElementById('numeric-summary');
-        numericSummary.innerHTML = '';
-        
-        // Use the column stats if available from API
-        if (data.columns_stats) {
-            // Find numeric columns from data types
-            const numericColumns = Object.keys(columnTypes).filter(col => 
-                columnTypes[col].includes('int') || 
-                columnTypes[col].includes('float') || 
-                columnTypes[col].includes('number'));
-                
-            numericColumns.forEach(column => {
-                if (!data.columns_stats[column]) return;
-                
-                const stats = data.columns_stats[column];
-                if (!('mean' in stats)) return; // Skip if not numeric stats
-                
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${column}</td>
-                    <td>${stats.mean !== null ? stats.mean.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.median !== null ? stats.median.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.min !== null ? stats.min.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.max !== null ? stats.max.toFixed(2) : 'N/A'}</td>
-                    <td>${stats.std !== null ? stats.std.toFixed(2) : 'N/A'}</td>
-                `;
-                numericSummary.appendChild(tr);
-            });
-            
-            if (numericColumns.length === 0) {
-                numericSummary.innerHTML = '<tr><td colspan="6">No numeric columns found</td></tr>';
-            }
-        } else {
-            // Simplified fallback using preview data
-            const numericColumns = Object.keys(columnTypes).filter(col => 
-                columnTypes[col].includes('int') || 
-                columnTypes[col].includes('float') || 
-                columnTypes[col].includes('number'));
-                
-            if (numericColumns.length === 0) {
-                numericSummary.innerHTML = '<tr><td colspan="6">No numeric columns found in preview</td></tr>';
-            } else {
-                numericSummary.innerHTML = '<tr><td colspan="6">Full numeric statistics will be available after data cleaning</td></tr>';
-            }
-        }
-        
-        // Display categorical columns summary - simplified for preview
-        const categoricalSummary = document.getElementById('categorical-summary');
-        categoricalSummary.innerHTML = '';
-        
-        // Find categorical columns from data types
-        const categoricalColumns = Object.keys(columnTypes).filter(col => 
-            columnTypes[col].includes('object') || 
-            columnTypes[col].includes('category') || 
-            columnTypes[col].includes('bool'));
-            
-        if (categoricalColumns.length > 0) {
-            if (data.columns_stats) {
-                categoricalColumns.slice(0, 3).forEach(column => {  // Show only first 3 categorical columns
-                    const stats = data.columns_stats[column];
-                    if (!stats) return;
-                    
-                    const div = document.createElement('div');
-                    div.className = 'mb-3';
-                    div.innerHTML = `<h6>${column} (${stats.unique_values || '?'} unique values)</h6>`;
-                    
-                    // If we had top value frequencies, we could show them here
-                    
-                    categoricalSummary.appendChild(div);
+        // Example of populating missing values summary:
+        missingSummary.innerHTML = '<h5>Missing Values</h5>';
+        if (Object.keys(data.missing_values_count).length > 0) {
+            const missingList = document.createElement('ul');
+            // Sort columns by missing count and display
+            Object.entries(data.missing_values_count)
+                .sort(([, countA], [, countB]) => countB - countA)
+                .slice(0, 5) // Show top 5
+                .forEach(([column, count]) => {
+                    const percentage = data.missing_values_percentage[column].toFixed(2);
+                    const li = document.createElement('li');
+                    li.textContent = `${column}: ${count} (${percentage}%)`;
+                    missingList.appendChild(li);
                 });
-            } else {
-                categoricalSummary.innerHTML = '<p>Categorical column details will be available after data cleaning</p>';
-            }
+            missingSummary.appendChild(missingList);
         } else {
-            categoricalSummary.innerHTML = '<p>No categorical columns found</p>';
+             missingSummary.innerHTML += '<p>No missing values found.</p>';
         }
-        
+
+
+        const numericSummaryBody = document.getElementById('numeric-summary');
+        numericSummaryBody.innerHTML = ''; // Clear previous content
+
+        // Populate numeric summary table using data.columns_stats
+         Object.entries(data.columns_stats).forEach(([column, stats]) => {
+             if (stats.dtype && (stats.dtype.includes('int') || stats.dtype.includes('float'))) {
+                  const tr = document.createElement('tr');
+                   tr.innerHTML = `
+                       <td>${column}</td>
+                       <td>${stats.mean !== undefined ? stats.mean.toFixed(2) : 'N/A'}</td>
+                       <td>${stats.median !== undefined ? stats.median.toFixed(2) : 'N/A'}</td>
+                       <td>${stats.min !== undefined ? stats.min.toFixed(2) : 'N/A'}</td>
+                       <td>${stats.max !== undefined ? stats.max.toFixed(2) : 'N/A'}</td>
+                       <td>${stats.std !== undefined ? stats.std.toFixed(2) : 'N/A'}</td>
+                   `;
+                   numericSummaryBody.appendChild(tr);
+             }
+         });
+
+
+        // Populate categorical summary using data.columns_stats
+        const categoricalSummaryDiv = document.getElementById('categorical-summary');
+        categoricalSummaryDiv.innerHTML = ''; // Clear previous content
+
+        Object.entries(data.columns_stats).forEach(([column, stats]) => {
+            if (stats.dtype && (stats.dtype.includes('object') || stats.dtype.includes('category') || stats.dtype.includes('bool'))) {
+                 const div = document.createElement('div');
+                 div.className = 'mb-3';
+                 div.innerHTML = `<h6>${column} (${stats.unique_values !== undefined ? stats.unique_values : '?'} unique values)</h6>`;
+                 // Add top values if available in backend response
+                 categoricalSummaryDiv.appendChild(div);
+            }
+        });
+
+
         // Show the summary
         summaryLoading.style.display = 'none';
         summaryContent.style.display = 'block';
-    } catch (error) {
-        console.error('Error generating data summary:', error);
+        summaryError.style.display = 'none'; // Hide error if successful
+
+    })
+    .catch(error => {
+        console.error('Error fetching data summary:', error);
         summaryLoading.style.display = 'none';
+        summaryContent.style.display = 'none'; // Hide content on error
         summaryError.style.display = 'block';
-        summaryError.textContent = error.message || 'Error generating data summary.';
-    }
+        summaryError.textContent = `Error generating data summary: ${error.message}`;
+    });
 }
+
+// Call generateDataSummary() when the page loads or when new data is uploaded
+document.addEventListener('DOMContentLoaded', function() {
+    // ... other event listeners
+
+    // Call generateDataSummary when the page loads
+    generateDataSummary();
+
+    // You'll also need to call generateDataSummary when a new file is successfully uploaded
+    document.addEventListener('dataStateUpdated', function(event) {
+        const dataState = event.detail;
+        updateDataPreview(dataState);
+        // Call generateDataSummary after data is loaded
+        generateDataSummary();
+    });
+});
+
 
 function applyCleaningActions() {
     // Get form values

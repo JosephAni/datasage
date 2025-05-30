@@ -1,3 +1,4 @@
+print("--- Flask app started ---") # Add this line
 from flask import Flask, render_template, request, redirect, url_for, jsonify, session, send_file, flash
 import pandas as pd
 import numpy as np
@@ -95,7 +96,7 @@ class UploadedFile(db.Model):
     filepath = db.Column(db.String(500), nullable=False)
     date_uploaded = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     session_id = db.Column(db.String(100), nullable=False)
-    
+
     def __repr__(self):
         return f'<UploadedFile {self.filename}>'
 
@@ -107,7 +108,7 @@ class ProcessedFile(db.Model):
     process_type = db.Column(db.String(50)) # e.g., 'cleaned', 'converted'
     date_processed = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     session_id = db.Column(db.String(100), nullable=False)
-    
+
     def __repr__(self):
         return f'<ProcessedFile {self.filename}>'
 
@@ -133,57 +134,131 @@ def load_sample_data():
 
 def get_session_data():
     """Get dataframe from current session with performance optimization"""
+    print("get_session_data: Function called")
     try:
+        print(f"get_session_data: session keys - {session.keys()}")
+
+        # --- Attempt to load DataFrame from session if available ---
+        if 'current_dataset' in session:
+            print("get_session_data: 'current_dataset' found in session")
+            df_json = session['current_dataset']
+            print(f"get_session_data: Type of session['current_dataset']: {type(df_json)}")
+
+            # Check if it's already a DataFrame (unlikely but for safety)
+            if isinstance(df_json, pd.DataFrame):
+                 print("get_session_data: 'current_dataset' is already a DataFrame")
+                 return df_json
+
+            # Try to load JSON string from session and convert back to DataFrame
+            try:
+                print("get_session_data: Attempting to read JSON from session")
+                df = pd.read_json(io.StringIO(df_json))
+                print("get_session_data: Successfully loaded DataFrame from session['current_dataset']")
+                print(f"get_session_data: Loaded DataFrame shape: {df.shape}")
+                print(f"get_session_data: Loaded DataFrame dtypes: {df.dtypes.to_dict()}")
+                return df
+            except Exception as e:
+                print(f"get_session_data: Error loading DataFrame from session JSON: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # If loading from session fails, fall through to the rest of the logic
+
+        else:
+            print("get_session_data: 'current_dataset' not found in session")
+
+        # --------------------------------------------------------------------
+
         # Get filepath from session, with a default of None
         filepath = session.get('filepath', None)
-        
+        print(f"get_session_data: filepath from session - {filepath}")
+
         # Check if filepath exists and is valid
         if not filepath or not isinstance(filepath, str) or not os.path.exists(filepath):
+            print("get_session_data: filepath invalid or not found, checking cleaned_filepath or database")
             # Try cleaned filepath
             cleaned_filepath = session.get('cleaned_filepath', None)
+            print(f"get_session_data: cleaned_filepath from session - {cleaned_filepath}")
             if cleaned_filepath and isinstance(cleaned_filepath, str) and os.path.exists(cleaned_filepath):
                 filepath = cleaned_filepath
+                print(f"get_session_data: Using cleaned_filepath - {filepath}")
             else:
                 # Try to find most recent file for this session from database
                 try:
+                    print("get_session_data: Checking database for latest file")
                     session_id = get_session_id()
                     latest_file = ProcessedFile.query.filter_by(session_id=session_id).order_by(ProcessedFile.date_processed.desc()).first()
-                    
+
                     if not latest_file:
                         latest_file = UploadedFile.query.filter_by(session_id=session_id).order_by(UploadedFile.date_uploaded.desc()).first()
-                    
+
                     if latest_file and os.path.exists(latest_file.filepath):
                         filepath = latest_file.filepath
                         session['filepath'] = filepath
                         session['filename'] = latest_file.filename
+                        print(f"get_session_data: Found latest file in database - {filepath}")
                     else:
+                        print("get_session_data: No filepath found in session or database")
                         return None
                 except Exception as e:
-                    print(f"Database error in get_session_data: {str(e)}")
+                    print(f"get_session_data: Database error in get_session_data: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
                     return None
-        
-        # Load and return the data
+        else:
+             print("get_session_data: Using filepath from session")
+
+
+        # Load and return the data from filepath
         try:
+            print(f"get_session_data: Attempting to load data from filepath: {filepath}")
             if filepath.endswith('.csv'):
                 # Check file size
                 file_size = os.path.getsize(filepath)
                 if file_size > 50 * 1024 * 1024:  # 50MB
-                    return pd.read_csv(filepath, nrows=1000)
-                return pd.read_csv(filepath)
+                    print("get_session_data: File size > 50MB, reading only 1000 rows")
+                    df = pd.read_csv(filepath, nrows=1000)
+                else:
+                    df = pd.read_csv(filepath)
+                print("get_session_data: Finished reading CSV")
             elif filepath.endswith(('.xls', '.xlsx')):
-                return pd.read_excel(filepath)
+                df = pd.read_excel(filepath)
+                print("get_session_data: Finished reading Excel")
             elif filepath.endswith('.json'):
-                return pd.read_json(filepath)
+                df = pd.read_json(filepath)
+                print("get_session_data: Finished reading JSON")
             else:
-                print(f"Unsupported file type for {filepath}")
+                print(f"get_session_data: Unsupported file type for {filepath}")
                 return None
+
+            print("get_session_data: Successfully loaded DataFrame from filepath")
+            print(f"get_session_data: Loaded DataFrame shape: {df.shape}")
+            print(f"get_session_data: Loaded DataFrame dtypes: {df.dtypes.to_dict()}")
+
+            # --- Consider saving this loaded df back to 'current_dataset' in session ---
+            # This might be redundant if the upload process already saves to 'current_dataset',
+            # but adding it here can help ensure consistency.
+            try:
+                session['current_dataset'] = df.to_json()
+                print("get_session_data: Saved loaded DataFrame from filepath back to session['current_dataset']")
+            except Exception as e:
+                 print(f"get_session_data: Error saving loaded DataFrame back to session: {str(e)}")
+            # -----------------------------------------------------------------------------
+
+            return df
+
         except Exception as e:
-            print(f"Error loading data file {filepath}: {str(e)}")
+            print(f"get_session_data: Error loading data file {filepath}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
-            
+
     except Exception as e:
-        print(f"Session error in get_session_data: {str(e)}")
+        print(f"get_session_data: General session error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return None
+
+
 
 def apply_cleaning(df, cleaning_actions):
     """Apply cleaning actions to dataframe"""
@@ -410,6 +485,135 @@ def data_cleaning():
         return render_template('data_cleaning.html', 
                               has_data=False, 
                               message="An error occurred. Please upload a dataset first or load sample data.")
+
+@app.route('/api/data_summary', methods=['GET'])
+def get_data_summary():
+    print("--- Inside /api/data_summary route ---")
+
+    current_dataset = get_session_data()
+    print(f"Inside /api/data_summary: Type of current_dataset after calling get_session_data(): {type(current_dataset)}")
+
+    if current_dataset is None:
+        print("Inside /api/data_summary: current_dataset is None")
+        return jsonify({"error": "No data loaded. Please upload a file."}), 400
+
+    try:
+        print("Inside /api/data_summary: Proceeding with data summary calculation")
+        # Calculate column data types
+        column_dtypes = current_dataset.dtypes.apply(lambda x: x.name).to_dict()
+
+        # Calculate missing values
+        missing_values_count = current_dataset.isnull().sum().to_dict()
+        row_count = len(current_dataset)
+        # Ensure row_count is a standard int
+        row_count = int(row_count)
+
+        missing_values_percentage = {
+            col: float((count / row_count) * 100) if row_count > 0 else 0.0
+            for col, count in missing_values_count.items()
+        }
+
+        # Get columns statistics (mean, median, min, max, std, unique values)
+        columns_stats = {}
+        for col in current_dataset.columns:
+            col_stats = {}
+            dtype = current_dataset[col].dtype
+
+            # Basic stats for all types
+            col_stats['missing'] = int(missing_values_count.get(col, 0)) # Cast to int
+            col_stats['dtype'] = dtype.name
+
+            if pd.api.types.is_numeric_dtype(dtype):
+                # Numeric specific stats
+                col_stats['mean'] = float(current_dataset[col].mean()) if not pd.isna(current_dataset[col].mean()) else None # Cast to float
+                col_stats['median'] = float(current_dataset[col].median()) if not pd.isna(current_dataset[col].median()) else None # Cast to float
+                col_stats['min'] = float(current_dataset[col].min()) if not pd.isna(current_dataset[col].min()) else None # Cast to float
+                col_stats['max'] = float(current_dataset[col].max()) if not pd.isna(current_dataset[col].max()) else None # Cast to float
+                col_stats['std'] = float(current_dataset[col].std()) if not pd.isna(current_dataset[col].std()) else None # Cast to float
+            elif pd.api.types.is_datetime64_any_dtype(dtype):
+                 # Datetime specific stats - Convert Timestamps to ISO format strings
+                 min_date = current_dataset[col].min()
+                 max_date = current_dataset[col].max()
+                 col_stats['min'] = min_date.isoformat() if pd.notna(min_date) else None
+                 col_stats['max'] = max_date.isoformat() if pd.notna(max_date) else None
+                 # You might add other datetime specific stats here
+            else:
+                # Categorical/Object specific stats
+                col_stats['unique_values'] = int(current_dataset[col].nunique()) # Cast to int
+                # You could add top occurring values here if needed
+                # col_stats['top_values'] = current_dataset[col].value_counts().head().to_dict()
+
+
+            columns_stats[col] = col_stats
+
+        # Prepare the summary data to be sent to the frontend
+        summary_data = {
+            "row_count": row_count, # Already cast above
+            "column_count": int(len(current_dataset.columns)), # Cast to int
+            "dtypes": column_dtypes,
+            "missing_values_count": {col: int(count) for col, count in missing_values_count.items()}, # Ensure counts are int
+            "missing_values_percentage": missing_values_percentage, # Already cast above
+            "columns_stats": columns_stats # Values within this dict are cast above
+        }
+
+        print("Inside /api/data_summary: Successfully generated summary_data")
+        return jsonify(summary_data)
+
+
+    except Exception as e:
+        # Log the error for debugging
+        print(f"Inside /api/data_summary: Error generating data summary: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": "An error occurred while generating data summary."}), 500
+
+@app.route('/api/upload_file', methods=['POST'])
+def upload_file():
+    print("Received request to /api/upload_file") # Debugging line
+
+    if 'file' not in request.files:
+        print("No 'file' part in the request") # Debugging line
+        return jsonify({"error": "No file part in the request"}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        print("No selected file") # Debugging line
+        return jsonify({"error": "No selected file"}), 400
+
+    print(f"Received file: {file.filename}") # Debugging line
+
+    original_filename = file.filename
+    base_name, file_ext = os.path.splitext(original_filename)
+    file_ext = file_ext.lower()
+
+    print(f"File extension: {file_ext}") # Debugging line
+
+    df = None
+    try:
+        if file_ext == '.csv':
+            df = pd.read_csv(file)
+        elif file_ext in ['.xls', '.xlsx']:
+            df = pd.read_excel(file)
+        elif file_ext == '.json':
+            df = pd.read_json(file)
+        else:
+            print("Unsupported file type") # Debugging line
+            return jsonify({"error": "Unsupported file type"}), 400
+
+        print("File read successfully into DataFrame") # Debugging line
+
+        # Store the dataset (or relevant parts of it) in the session
+        session['current_dataset'] = df.to_json() # Convert DataFrame to JSON for session storage
+        session['filename'] = original_filename # Store filename in session
+
+        print("Data stored in session") # Debugging line
+        print(f"Session keys: {session.keys()}") # Debugging line
+
+        return jsonify({"message": "File uploaded successfully", "filename": original_filename}), 200
+
+    except Exception as e:
+        print(f"Error reading or processing file: {e}") # Debugging line
+        return jsonify({"error": f"Error processing file: {e}"}), 500
 
 @app.route('/advanced_data_cleaning', methods=['GET', 'POST'])
 def advanced_data_cleaning():
@@ -1914,9 +2118,15 @@ def calculate_clv():
 @app.route('/api/data/info', methods=['GET'])
 def get_data_info():
     """Get information about the loaded dataset"""
-    df = get_session_data()
-    if df is None:
-        return jsonify({'error': 'No data loaded'}), 404
+    data_info = {
+        "message": "This is the data info endpoint",
+        "status": "success",
+        "data": {
+            "number_of_records": 100,
+            "last_updated": "2023-10-27"
+        }
+    }
+    return jsonify(data_info)
     
     # Create basic metadata
     metadata = {
@@ -3338,4 +3548,4 @@ def impute_missing_values():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=8080) 

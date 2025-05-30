@@ -49,20 +49,41 @@ class DataManager:
                 if not success:
                     print("Failed to load data from session and no alternative data source provided")
                     return False
-                    
+
             # Generate column metadata after loading
             if self.data is not None and not self.data.empty:
                 self._generate_column_metadata()
+
+                # --- Add this section to save data to Flask session ---
+                if self._session is not None:
+                    try:
+                        # Convert DataFrame to JSON and store in session
+                        self._session['current_dataset'] = self.data.to_json()
+                        print("DataManager: Successfully saved DataFrame to session['current_dataset']")
+                        # Also store filename in session
+                        if file_path:
+                            self._session['filename'] = os.path.basename(file_path)
+                        elif sample_name:
+                            self._session['filename'] = f"sample_{sample_name}.csv" # Or appropriate extension
+                        print(f"DataManager: Saved filename '{self._session.get('filename')}' to session")
+
+                    except Exception as e:
+                        print(f"DataManager: Error saving DataFrame to session: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                # -----------------------------------------------------
+
                 return True
             else:
                 print("Data loaded but appears to be empty")
                 return False
-                
+
         except Exception as e:
             print(f"Error loading data: {str(e)}")
             import traceback
             traceback.print_exc()
             return False
+
     
     def _save_to_session(self):
         """Save current data to session storage with optimized performance"""

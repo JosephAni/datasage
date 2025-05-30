@@ -103,3 +103,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 Joseph Ani - [GitHub](https://github.com/JosephAni)
 
 Project Link: [https://github.com/JosephAni/inventory-optimization](https://github.com/JosephAni/inventory-optimization)
+
+# To activate platform run  nix-shell dev.nix
+

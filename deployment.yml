@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: data-cleaner-app
+  name: inventory-optimization-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: data-cleaner
+      app: inventory-optimization
   template:
     metadata:
       labels:
-        app: data-cleaner
+        app: inventory-optimization
     spec:
       containers:
-      - name: data-cleaner
+      - name: inventory-optimization
         image: LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE:TAG
         ports:
         - containerPort: 8080
