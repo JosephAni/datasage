@@ -76,6 +76,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initial UI update if data is already loaded
     if (DataState.isLoaded) {
         updateUI();
+    } else {
+        fetchDatasetInfo();
     }
     
     // Form submission
@@ -152,6 +154,44 @@ async function calculateCLV() {
         showError('Error calculating CLV: ' + error.message);
     }
 }
+
+async function fetchDatasetInfo() {
+    try {
+        const response = await fetch('/api/data/info');
+
+        if (!response.ok) {
+            // Handle non-2xx status codes (like 400)
+            const errorData = await response.json();
+            showError(errorData.message || 'Failed to load dataset information.'); // Display backend error message
+            // Optionally, update DataState to reflect no data is loaded
+            DataState.isLoaded = false;
+            DataState.metadata = {}; // Clear metadata
+            DataState.columnTypes = {}; // Clear column types
+            updateUI(); // Update UI based on the new DataState
+            return; // Stop further processing
+        }
+
+        const data = await response.json();
+        // Process the successful response data here
+        // Update DataState with the received data
+        DataState.isLoaded = true;
+        DataState.metadata = data.metadata; // Assuming metadata is at the top level
+        DataState.columnTypes = data.column_types; // Assuming column_types is at the top level
+        updateUI(); // Update UI with the loaded data
+
+    } catch (error) {
+        // Handle network errors or other exceptions
+        showError('An error occurred while fetching dataset information: ' + error.message);
+        DataState.isLoaded = false;
+        DataState.metadata = {};
+        DataState.columnTypes = {};
+        updateUI();
+    }
+}
+
+// Make sure this function is called when needed, e.g., after a successful upload
+// and potentially on page load if data might already be in the session.
+
 
 function displayResults(results) {
     const resultsDiv = document.getElementById('results');

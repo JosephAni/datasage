@@ -88,6 +88,12 @@ os.makedirs(app.config['SESSION_FILE_DIR'], exist_ok=True)
 
 # Initialize DataManager
 data_manager = DataManager()
+@app.before_request
+def before_request():
+        """Ensure DataManager has access to the current session."""
+        data_manager.init_app(session)
+        print("DataManager: init_app called with session in before_request")
+        print(f"DataManager: Session keys in before_request: {list(session.keys())}") # Log session keys
 
 # Define database models
 class UploadedFile(db.Model):
@@ -440,6 +446,7 @@ def upload():
                 
                 # Load data using DataManager
                 if data_manager.load_data(filepath, filename):
+                    print("DataManager.load_data returned True in upload route")
                     flash('File uploaded and loaded successfully', 'success')
                     return redirect(url_for('data_cleaning'))
                 else:
@@ -816,7 +823,9 @@ def data_visualization():
 @app.route('/api/data_preview', methods=['GET'])
 def api_data_preview():
     try:
-        df = get_session_data()
+        data_manager = DataManager()
+        df = data_manager.get_data()
+
         if df is None:
             return jsonify({"error": "No data loaded"}), 404
         
@@ -2081,10 +2090,15 @@ def calculate_clv():
         today = df[date_col].max()
         
         rfm = df.groupby(customer_id_col).agg({
-            date_col: lambda x: (today - x.max()).days,  # Recency
-            customer_id_col: 'count',  # Frequency
-            amount_col: 'sum'  # Monetary
-        }).reset_index()
+                date_col: lambda x: (today - x.max()).days,  # Recency
+                customer_id_col: 'count',  # Frequency
+                amount_col: 'sum'  # Monetary
+            }).rename(columns={
+                date_col: 'Recency',
+                customer_id_col: 'Frequency',
+                amount_col: 'Monetary'
+            })
+
         
         # Rename columns
         rfm.columns = [customer_id_col, 'recency', 'frequency', 'monetary']
@@ -2117,66 +2131,38 @@ def calculate_clv():
 
 @app.route('/api/data/info', methods=['GET'])
 def get_data_info():
-    """Get information about the loaded dataset"""
-    data_info = {
-        "message": "This is the data info endpoint",
-        "status": "success",
-        "data": {
-            "number_of_records": 100,
-            "last_updated": "2023-10-27"
-        }
-    }
-    return jsonify(data_info)
-    
-    # Create basic metadata
-    metadata = {
-        'filename': session.get('filename', 'Unknown'),
-        'last_updated': datetime.datetime.now().isoformat(),
-        'row_count': len(df),
-        'column_count': len(df.columns)
-    }
-    
-    # Get column types
-    column_types = {col: str(df[col].dtype) for col in df.columns}
-    
-    # Calculate basic stats for each column
-    column_stats = {}
-    for col in df.columns:
-        stats = {
-            'missing': int(df[col].isna().sum()),
-            'unique_values': int(df[col].nunique())
-        }
-        
-        # Add numeric stats if applicable
-        if pd.api.types.is_numeric_dtype(df[col]):
-            stats.update({
-                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
-                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
-                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
-                'median': float(df[col].median()) if not pd.isna(df[col].median()) else None,
-                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None
-            })
-        
-        column_stats[col] = stats
-    
-    return jsonify({
-        'metadata': metadata,
-        'column_types': column_types,
-        'column_stats': column_stats
-    })
+        """Get information about the loaded dataset"""
+        data_manager = DataManager() # Get the singleton
+        print(f"DataManager: Instance ID in get_data_info: {id(data_manager)}")
+        print(f"DataManager: Session in get_data_info: {data_manager._session is not None}")
+        df = data_manager.get_data() # Access the loaded data (DataFrame)
 
-def require_data(f):
-    """Decorator to check if data is available"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not data_manager.has_data():
-            flash('Please upload a dataset first', 'warning')
-            return redirect(url_for('upload'))
-        return f(*args, **kwargs)
-    return decorated_function
+        if df is None:
+            print("DataManager.data is None in get_data_info")
+            return jsonify({
+                "message": "No dataset loaded.",
+                "status": "error",
+                "data": {}
+            }), 400 # Return a 400 status code for bad request
+        else:
+            data_info = data_manager.get_metadata() # Or a dedicated method to get summary info
+            return jsonify({
+                "message": "Dataset loaded successfully.",
+                "status": "success",
+                "data": data_info
+            }), 200
+
 
 @app.route('/visualization')
-@require_data
+def require_data(f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        ## Add data check logic here
+        # Example: Check if data is in session
+        # if 'data' not in session:
+        #     return redirect(url_for('upload'))
+        return f(*args, **kwargs)
+    return wrapper
 def visualization():
     return render_template('visualization.html')
 

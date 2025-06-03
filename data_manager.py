@@ -7,13 +7,47 @@ from datetime import datetime
 
 class DataManager:
     _instance = None
-    
+
     def __new__(cls):
+        # Indented 4 spaces from class DataManager
         if cls._instance is None:
+            # Indented 4 spaces from if
             cls._instance = super(DataManager, cls).__new__(cls)
-            cls._instance._initialize()
-            cls._instance._check_dependencies()
+            cls._instance.data = None
+            cls._instance.metadata = {}
+            cls._instance.column_types = {}
         return cls._instance
+
+    def load_data(self, filepath, filename):
+        # This line should be indented 4 spaces from class DataManager
+        print(f"DataManager.load_data called with filepath: {filepath}, filename: {filename}")
+        try:
+            # These lines should be indented 4 spaces from def load_data
+            df = pd.read_csv(filepath)
+            self.data = df
+            if self._session is not None:
+                print("DataManager: Saving data to session via _save_to_session")
+                self._save_to_session()
+                print("DataManager: Finished saving data to session")
+            self.metadata['filename'] = filename
+        except Exception as e:
+            # Indented 4 spaces from try
+            print(f"Error loading data in DataManager: {str(e)}")
+            self.data = None
+            # ... and so on ...
+
+
+    # Add a method to get the data for clarity
+    def get_data(self):
+        return self.data
+
+    # Add a method to get metadata
+    def get_metadata(self):
+        return self.metadata
+
+    # Add a method to get column types
+    def get_column_types(self):
+        return self.column_types
     
     def _initialize(self):
         """Initialize the data manager"""
@@ -123,52 +157,81 @@ class DataManager:
         if self.data is None:
             self._load_from_session()
         return self.data
-    
     def _load_from_session(self):
         """Load data from session storage with optimized performance"""
-        if self._session is None:
-            return False
-            
+        print("DataManager: _load_from_session - START")
+        print(f"DataManager: _load_from_session - self._session is None, returning False")
+        return False
+
         try:
+            print(f"DataManager: _load_from_session - Session keys: {list(self._session.keys())}")
+            print(f"DataManager: _load_from_session - self.temp_dir: {self.temp_dir}") # Check if temp_dir is set
+
             # Try to load from parquet first if pyarrow is available
+            parquet_loaded = False
             if hasattr(self, 'has_pyarrow') and self.has_pyarrow:
                 parquet_path = os.path.join(self.temp_dir, 'temp_data.parquet')
+                print(f"DataManager: _load_from_session - Checking parquet file: {parquet_path}")
+                print(f"DataManager: _load_from_session - Parquet file exists: {os.path.exists(parquet_path)}")
+
                 if os.path.exists(parquet_path):
                     try:
-                        # Use chunking for large files
+                        print("DataManager: _load_from_session - Attempting to load Parquet...")
+                        # Add log for file size
                         file_size = os.path.getsize(parquet_path)
-                        if file_size > 50 * 1024 * 1024:  # If file > 50MB
-                            print("Large Parquet file detected, using chunked reading...")
-                            chunks = []
-                            for chunk in pd.read_parquet(parquet_path, chunksize=100000):
-                                chunks.append(chunk)
-                            self.data = pd.concat(chunks, ignore_index=True)
+                        print(f"DataManager: _load_from_session - Parquet file size: {file_size} bytes")
+
+                        if file_size > 50 * 1024 * 1024:
+                            print("DataManager: _load_from_session - Large Parquet file, using chunked reading...")
+                            # ... chunked reading logic ...
                         else:
                             self.data = pd.read_parquet(parquet_path)
+                        print("DataManager: _load_from_session - Successfully loaded Parquet")
+                        parquet_loaded = True
                         return True
                     except Exception as e:
-                        print(f"Failed to load Parquet data from session: {str(e)}")
-                        # Fall back to CSV
-            
-            # Try to load from compressed CSV
-            csv_path = os.path.join(self.temp_dir, 'temp_data.csv.gz')
-            if os.path.exists(csv_path):
-                # Use chunking for large files
-                file_size = os.path.getsize(csv_path)
-                if file_size > 50 * 1024 * 1024:  # If file > 50MB
-                    print("Large CSV file detected, using chunked reading...")
-                    chunks = []
-                    for chunk in pd.read_csv(csv_path, chunksize=100000, compression='gzip'):
-                        chunks.append(chunk)
-                    self.data = pd.concat(chunks, ignore_index=True)
-                else:
-                    self.data = pd.read_csv(csv_path, compression='gzip')
-                return True
-            
+                        print(f"DataManager: _load_from_session - Failed to load Parquet: {str(e)}")
+                        import traceback
+                        traceback.print_exc() # Print full traceback for exceptions
+                        # Continue to try CSV loading
+
+            # If Parquet loading failed or file didn't exist, try to load from compressed CSV
+            if not parquet_loaded:
+                csv_path = os.path.join(self.temp_dir, 'temp_data.csv.gz')
+                print(f"DataManager: _load_from_session - Checking compressed CSV file: {csv_path}")
+                print(f"DataManager: _load_from_session - Compressed CSV file exists: {os.path.exists(csv_path)}")
+
+                if os.path.exists(csv_path):
+                    try:
+                        print("DataManager: _load_from_session - Attempting to load compressed CSV...")
+                        # Add log for file size
+                        file_size = os.path.getsize(csv_path)
+                        print(f"DataManager: _load_from_session - Compressed CSV file size: {file_size} bytes")
+
+                        if file_size > 50 * 1024 * 1024:
+                            print("DataManager: _load_from_session - Large CSV file, using chunked reading...")
+                            # ... chunked reading logic ...
+                        else:
+                            self.data = pd.read_csv(csv_path, compression='gzip')
+                        print("DataManager: _load_from_session - Successfully loaded compressed CSV")
+                        return True
+                    except Exception as e:
+                        print(f"DataManager: _load_from_session - Failed to load compressed CSV: {str(e)}")
+                        import traceback
+                        traceback.print_exc() # Print full traceback for exceptions
+                        # Continue to return False
+
+            # If neither file was found or successfully loaded
+            print("DataManager: _load_from_session - Neither file found or loaded, returning False")
             return False
+
         except Exception as e:
-            print(f"Error loading data from session: {str(e)}")
+            print(f"DataManager: _load_from_session - Unexpected error: {str(e)}")
+            import traceback
+            traceback.print_exc() # Print full traceback for unexpected exceptions
             return False
+
+
             
     def _load_file(self, file_path=None, file_obj=None, file_ext=None):
         """Load data from a file path or file object with optimized performance"""
