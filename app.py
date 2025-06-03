@@ -134,8 +134,12 @@ def load_sample_data():
 def get_session_data():
     """Get dataframe from current session with performance optimization"""
     try:
-        # Get filepath from session, with a default of None
         filepath = session.get('filepath', None)
+        print(f"DEBUG: session['filepath'] = {filepath}")
+        if filepath and os.path.exists(filepath):
+            print("DEBUG: File exists.")
+        else:
+            print("DEBUG: File does not exist or not set.")
         
         # Check if filepath exists and is valid
         if not filepath or not isinstance(filepath, str) or not os.path.exists(filepath):
@@ -1821,7 +1825,6 @@ def calculate_costs(order_size, annual_demand, order_cost, unit_cost, holding_ra
 
 @app.route('/api/clv/data/preview', methods=['GET'])
 def get_clv_data_preview():
-    """Return a preview of the data for CLV analysis"""
     try:
         df = get_session_data()
         if df is None:
@@ -1837,6 +1840,9 @@ def get_clv_data_preview():
         quantity_cols = [col for col in columns if any(term in col.lower() for term in ['quantity', 'qty', 'amount', 'count'])]
         price_cols = [col for col in columns if any(term in col.lower() for term in ['price', 'value', 'revenue', 'sales'])]
         
+        # Get data info
+        info = get_data_info().json if hasattr(get_data_info(), 'json') else {}
+
         return jsonify({
             'columns': columns,
             'dtypes': dtypes,
@@ -1847,9 +1853,9 @@ def get_clv_data_preview():
                 'price': price_cols
             },
             'rows': len(df),
-            'dataset_name': session.get('filename', 'Unknown')
+            'dataset_name': session.get('filename', 'Unknown'),
+            'data_info': info  # Add this line
         })
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1878,12 +1884,17 @@ def calculate_clv():
         
         rfm = df.groupby(customer_id_col).agg({
             date_col: lambda x: (today - x.max()).days,  # Recency
-            customer_id_col: 'count',  # Frequency
             amount_col: 'sum'  # Monetary
         }).reset_index()
         
-        # Rename columns
-        rfm.columns = [customer_id_col, 'recency', 'frequency', 'monetary']
+        # Rename columns to standard names
+        rfm = rfm.rename(columns={date_col: 'recency', amount_col: 'monetary'})
+        
+        # Add frequency as a new column (number of transactions per customer)
+        rfm['frequency'] = df.groupby(customer_id_col).size().values
+        
+        # Reorder columns
+        rfm = rfm[[customer_id_col, 'recency', 'frequency', 'monetary']]
         
         # Calculate CLV
         # Using a simple formula: CLV = Average Order Value × Purchase Frequency × Customer Lifespan
@@ -3336,6 +3347,23 @@ def impute_missing_values():
     except Exception as e:
         print(f"Error in data imputation: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/session/set-file', methods=['POST'])
+def set_session_file():
+    """Set the session's current file for data preview and cleaning."""
+    try:
+        data = request.get_json()
+        filepath = data.get('filepath')
+        filename = data.get('filename')
+        if not filepath or not filename:
+            return jsonify({'error': 'filepath and filename are required'}), 400
+        if not os.path.exists(filepath):
+            return jsonify({'error': f'File does not exist: {filepath}'}), 400
+        session['filepath'] = filepath
+        session['filename'] = filename
+        return jsonify({'success': True, 'filepath': filepath, 'filename': filename})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000) 
