@@ -42,6 +42,7 @@ import math
 from data_manager import DataManager
 from functools import wraps
 from scipy.stats import norm
+from pandas.api.types import CategoricalDtype
 
 # Load environment variables
 load_dotenv()
@@ -2231,41 +2232,23 @@ def api_data_overview():
     df = get_session_data()
     if df is None:
         return jsonify({"error": "No data loaded"})
-    
-    # Basic dataset statistics
     overview = {
-        'row_count': len(df),
-        'column_count': len(df.columns),
-        'missing_values': int(df.isna().sum().sum()),
-        'duplicate_rows': int(df.duplicated().sum()),
-        'memory_usage': int(df.memory_usage(deep=True).sum()),
+        'metadata': {
+            'row_count': len(df),
+            'column_count': len(df.columns),
+            'filename': session.get('filename', 'Unknown'),
+            'last_updated': datetime.datetime.now().isoformat()
+        },
+        'dtype_counts': {str(k): int(v) for k, v in df.dtypes.value_counts().to_dict().items()},
         'columns': df.columns.tolist(),
-    }
-    
-    # Column statistics
-    column_stats = {}
-    for col in df.columns:
-        stats = {
-            'dtype': str(df[col].dtype),
-            'missing_count': int(df[col].isna().sum()),
-            'missing_percentage': float(df[col].isna().mean() * 100),
-            'unique_count': int(df[col].nunique()),
+        'column_stats': {
+            col: {
+                'dtype': str(df[col].dtype),
+                'missing': int(df[col].isna().sum()),
+                'unique_values': int(df[col].nunique())
+            } for col in df.columns
         }
-        
-        # Add numeric statistics if applicable
-        if pd.api.types.is_numeric_dtype(df[col]):
-            stats.update({
-                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
-                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
-                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
-                'median': float(df[col].median()) if not pd.isna(df[col].median()) else None,
-                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None
-            })
-        
-        column_stats[col] = stats
-    
-    overview['column_stats'] = column_stats
-    
+    }
     return jsonify(overview)
 
 @app.route('/api/data/skewness', methods=['GET'])
@@ -3365,5 +3348,147 @@ def set_session_file():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/data/missing-values', methods=['GET'])
+def api_missing_values():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    missing_df = []
+    for col in df.columns:
+        missing = df[col].isna().sum()
+        percent = (missing / len(df)) * 100 if len(df) > 0 else 0
+        if missing > 0:
+            missing_df.append({
+                "column": col,
+                "missing_values": int(missing),
+                "percent_missing": percent
+            })
+    return jsonify({"missing_df": missing_df})
+
+@app.route('/api/data/statistics', methods=['GET'])
+def api_statistics():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    numeric_stats = {}
+    categorical_stats = {}
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            stats = {
+                'count': int(df[col].count()),
+                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
+                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None,
+                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                '25%': float(df[col].quantile(0.25)) if not pd.isna(df[col].quantile(0.25)) else None,
+                '50%': float(df[col].median()) if not pd.isna(df[col].median()) else None,
+                '75%': float(df[col].quantile(0.75)) if not pd.isna(df[col].quantile(0.75)) else None,
+                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None
+            }
+            numeric_stats[col] = stats
+        else:
+            value_counts = df[col].value_counts(dropna=False)
+            if not value_counts.empty:
+                top_value = value_counts.index[0]
+                top_count = value_counts.iloc[0]
+                top_percent = (top_count / len(df)) * 100 if len(df) > 0 else 0
+                categorical_stats[col] = {
+                    'unique_values': int(df[col].nunique(dropna=False)),
+                    'top_value': str(top_value),
+                    'top_count': int(top_count),
+                    'top_percent': top_percent
+                }
+    return jsonify({
+        'numeric_stats': numeric_stats,
+        'categorical_stats': categorical_stats
+    })
+
+@app.route('/api/data/correlation', methods=['GET'])
+def api_correlation():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    numeric_df = df.select_dtypes(include=['number'])
+    if numeric_df.empty:
+        return jsonify({"error": "No numeric columns for correlation analysis"})
+    corr_matrix = numeric_df.corr().round(3)
+    columns = corr_matrix.columns.tolist()
+    correlation_matrix = corr_matrix.values.tolist()
+    return jsonify({
+        'columns': columns,
+        'correlation_matrix': correlation_matrix
+    })
+
+@app.route('/api/data/distribution/<column>', methods=['GET'])
+def api_distribution(column):
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    if column not in df.columns:
+        return jsonify({"error": f"Column {column} not found"})
+    if not pd.api.types.is_numeric_dtype(df[column]):
+        return jsonify({"error": "Distribution analysis only supported for numeric columns"})
+    # Compute histogram
+    data = df[column].dropna()
+    frequencies, bins = np.histogram(data, bins=10)
+    # Convert bin edges to string labels for better chart display
+    bin_labels = [f'{round(bins[i],2)} - {round(bins[i+1],2)}' for i in range(len(bins)-1)]
+    return jsonify({
+        'bins': bin_labels,
+        'frequencies': frequencies.tolist()
+    })
+
+@app.route('/api/data/hypothesis-test', methods=['POST'])
+def api_hypothesis_test():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    data = request.get_json()
+    column = data.get('column')
+    test_type = data.get('test_type')
+    if not column or column not in df.columns:
+        return jsonify({"error": "Invalid or missing column"})
+    if not test_type:
+        return jsonify({"error": "Test type required"})
+    import scipy.stats as stats
+    result = {}
+    if test_type == 'ttest':
+        stat, p = stats.ttest_1samp(df[column].dropna(), 0)
+        interpretation = 'Likely different from 0' if p < 0.05 else 'Not significantly different from 0'
+        result = {
+            'test_name': 'One-sample T-Test',
+            'statistic': stat,
+            'p_value': p,
+            'interpretation': interpretation
+        }
+    elif test_type == 'anova':
+        if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+            return jsonify({'error': 'ANOVA requires a categorical column'}), 400
+        groups = [df[df[column] == val].dropna().select_dtypes(include=['number']).values.flatten() for val in df[column].dropna().unique()]
+        if len(groups) < 2:
+            return jsonify({'error': 'Not enough groups for ANOVA'}), 400
+        stat, p = stats.f_oneway(*groups)
+        interpretation = 'At least one group mean is different' if p < 0.05 else 'No significant difference between group means'
+        result = {
+            'test_name': 'ANOVA',
+            'statistic': stat,
+            'p_value': p,
+            'interpretation': interpretation
+        }
+    elif test_type == 'chi2':
+        if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+            return jsonify({'error': 'Chi-square requires a categorical column'}), 400
+        observed = df[column].value_counts().values
+        stat, p = stats.chisquare(observed)
+        interpretation = 'Distribution is not uniform' if p < 0.05 else 'No significant deviation from uniform distribution'
+        result = {
+            'test_name': 'Chi-Square',
+            'statistic': stat,
+            'p_value': p,
+            'interpretation': interpretation
+        }
+    else:
+        return jsonify({'error': 'Unsupported test type'}), 400
+    return jsonify(result)
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=8080) 

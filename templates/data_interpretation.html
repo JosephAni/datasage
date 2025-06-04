@@ -85,6 +85,9 @@
                             <!-- Columns will be populated by JavaScript -->
                         </select>
                     </div>
+                    <div class="col-md-6 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary">Show Distribution</button>
+                    </div>
                 </div>
             </form>
             <div id="distribution-plot">
@@ -139,6 +142,8 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <script>
 $(document).ready(function() {
     // Load data preview
@@ -177,23 +182,27 @@ $(document).ready(function() {
     // Load dataset overview
     function loadDatasetOverview() {
         $.get('/api/data/overview', function(data) {
+            console.log('Overview API response:', data);
             if (data.error) {
                 $('#dataset-overview').html(`<div class="alert alert-warning">${data.error}</div>`);
                 return;
             }
-            
+            // Defensive: check for metadata and dtype_counts
+            const rowCount = data.metadata && data.metadata.row_count !== undefined ? data.metadata.row_count : 'N/A';
+            const colCount = data.metadata && data.metadata.column_count !== undefined ? data.metadata.column_count : 'N/A';
+            const dtypeData = data.dtype_counts || {};
             let overview = `
                 <div class="row">
                     <div class="col-md-6">
                         <div class="metric-card">
                             <h6>Total Records</h6>
-                            <p>${data.total_rows.toLocaleString()}</p>
+                            <p>${rowCount.toLocaleString ? rowCount.toLocaleString() : rowCount}</p>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="metric-card">
                             <h6>Total Features</h6>
-                            <p>${data.total_cols}</p>
+                            <p>${colCount}</p>
                         </div>
                     </div>
                 </div>
@@ -202,34 +211,33 @@ $(document).ready(function() {
                     <div id="dtype-chart"></div>
                 </div>
             `;
-            
             $('#dataset-overview').html(overview);
-            
-            // Create data type distribution chart
-            const dtypeData = data.dtype_counts;
-            const ctx = document.createElement('canvas');
-            $('#dtype-chart').append(ctx);
-            
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: Object.keys(dtypeData),
-                    datasets: [{
-                        label: 'Count',
-                        data: Object.values(dtypeData),
-                        backgroundColor: 'rgba(52, 73, 94, 0.7)'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        y: {
-                            beginAtZero: true
+            // Log dtypeData for debugging
+            console.log('dtype_counts:', dtypeData);
+            // Create data type distribution chart if data exists
+            if (Object.keys(dtypeData).length > 0 && typeof Chart !== 'undefined') {
+                const ctx = document.createElement('canvas');
+                $('#dtype-chart').append(ctx);
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: Object.keys(dtypeData),
+                        datasets: [{
+                            label: 'Count',
+                            data: Object.values(dtypeData),
+                            backgroundColor: 'rgba(52, 73, 94, 0.7)'
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        scales: {
+                            y: { beginAtZero: true }
                         }
                     }
-                }
-            });
-            
+                });
+            } else {
+                $('#dtype-chart').html('<div class="alert alert-warning">No data type distribution available.</div>');
+            }
             // Load missing values analysis
             loadMissingValues();
         });
@@ -238,26 +246,33 @@ $(document).ready(function() {
     // Load missing values analysis
     function loadMissingValues() {
         $.get('/api/data/missing-values', function(data) {
+            console.log('Missing Values API response:', data);
             if (data.error) {
                 $('#missing-values').html(`<div class="alert alert-warning">${data.error}</div>`);
                 return;
             }
-            
+
+            // Defensive: check for missing_df
+            if (!data.missing_df || !Array.isArray(data.missing_df)) {
+                $('#missing-values').html('<div class="alert alert-warning">No missing values data available.</div>');
+                return;
+            }
+
             if (data.missing_df.length === 0) {
                 $('#missing-values').html('<p>No missing values in the dataset.</p>');
             } else {
                 let table = '<table class="table table-striped table-bordered"><thead><tr><th>Column</th><th>Missing Values</th><th>Percent Missing</th></tr></thead><tbody>';
-                
+
                 data.missing_df.forEach(row => {
                     table += `<tr>
                         <td>${row.column}</td>
                         <td>${row.missing_values}</td>
-                        <td>${row.percent_missing.toFixed(2)}%</td>
+                        <td>${row.percent_missing !== undefined ? row.percent_missing.toFixed(2) : 'N/A'}%</td>
                     </tr>`;
                 });
-                
+
                 table += '</tbody></table>';
-                
+
                 let content = `
                     <div class="row">
                         <div class="col-md-12">
@@ -270,38 +285,42 @@ $(document).ready(function() {
                         </div>
                     </div>
                 `;
-                
+
                 $('#missing-values').html(content);
-                
-                // Create missing values chart
-                const ctx = document.createElement('canvas');
-                $('#missing-values-chart').append(ctx);
-                
-                new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: data.missing_df.map(row => row.column),
-                        datasets: [{
-                            label: 'Missing Percentage',
-                            data: data.missing_df.map(row => row.percent_missing),
-                            backgroundColor: 'rgba(231, 76, 60, 0.7)'
-                        }]
-                    },
-                    options: {
-                        responsive: true,
-                        scales: {
-                            y: {
-                                beginAtZero: true,
-                                title: {
-                                    display: true,
-                                    text: 'Missing Percentage (%)'
+
+                // Create missing values chart if Chart.js is available
+                if (typeof Chart !== 'undefined' && data.missing_df.length > 0) {
+                    const ctx = document.createElement('canvas');
+                    $('#missing-values-chart').append(ctx);
+
+                    new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: data.missing_df.map(row => row.column),
+                            datasets: [{
+                                label: 'Missing Percentage',
+                                data: data.missing_df.map(row => row.percent_missing),
+                                backgroundColor: 'rgba(231, 76, 60, 0.7)'
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    title: {
+                                        display: true,
+                                        text: 'Missing Percentage (%)'
+                                    }
                                 }
                             }
                         }
-                    }
-                });
+                    });
+                } else {
+                    $('#missing-values-chart').html('<div class="alert alert-warning">No charting library or data available for missing values chart.</div>');
+                }
             }
-            
+
             // Load statistical analysis
             loadStatisticalAnalysis();
         });
@@ -387,7 +406,6 @@ $(document).ready(function() {
                 $('#correlation-analysis').html(`<div class="alert alert-warning">${data.error}</div>`);
                 return;
             }
-            
             let content = `
                 <div class="row">
                     <div class="col-md-12">
@@ -395,39 +413,27 @@ $(document).ready(function() {
                     </div>
                 </div>
             `;
-            
             $('#correlation-analysis').html(content);
-            
-            // Create correlation heatmap
-            const ctx = document.createElement('canvas');
-            $('#correlation-heatmap').append(ctx);
-            
-            new Chart(ctx, {
+            // Use Plotly for heatmap
+            const columns = data.columns;
+            const z = data.correlation_matrix;
+            const trace = {
+                z: z,
+                x: columns,
+                y: columns,
                 type: 'heatmap',
-                data: {
-                    labels: data.columns,
-                    datasets: [{
-                        data: data.correlation_matrix,
-                        backgroundColor: 'rgba(52, 152, 219, 0.7)'
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    scales: {
-                        x: {
-                            ticks: {
-                                maxRotation: 45
-                            }
-                        },
-                        y: {
-                            ticks: {
-                                maxRotation: 45
-                            }
-                        }
-                    }
-                }
-            });
-            
+                colorscale: 'RdBu',
+                zmin: -1,
+                zmax: 1,
+                colorbar: { title: 'Correlation' }
+            };
+            const layout = {
+                title: 'Correlation Matrix',
+                xaxis: { side: 'top', tickangle: 45 },
+                yaxis: { autorange: 'reversed' },
+                margin: { t: 50 }
+            };
+            Plotly.newPlot('correlation-heatmap', [trace], layout, {responsive: true});
             // Populate column selectors
             populateColumnSelectors(data.columns);
         });
@@ -451,20 +457,18 @@ $(document).ready(function() {
     // Handle distribution form submission
     $('#distribution-form').submit(function(e) {
         e.preventDefault();
-        
         const column = $('#distribution-column').val();
-        
+        console.log('Distribution form submitted for column:', column);
         $.get(`/api/data/distribution/${column}`, function(data) {
+            console.log('Distribution API response:', data);
             if (data.error) {
                 $('#distribution-plot').html(`<div class="alert alert-warning">${data.error}</div>`);
                 return;
             }
-            
             const ctx = document.createElement('canvas');
             $('#distribution-plot').empty().append(ctx);
-            
             new Chart(ctx, {
-                type: 'histogram',
+                type: 'bar', // Use 'bar' for histogram-like display
                 data: {
                     labels: data.bins,
                     datasets: [{

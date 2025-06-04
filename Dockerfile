@@ -1,5 +1,5 @@
-# Use Python 3.10 slim image as base
-FROM python:3.10-slim
+# Use Python 3.11 slim image as base
+FROM python:3.11-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
@@ -7,7 +7,7 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8080
 
 # Set working directory
-WORKDIR /data_cleaner
+WORKDIR /inventory-optimization
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,4 +28,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
-CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 data_cleaner.py"]
+CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 inventory_optimization.py"]
