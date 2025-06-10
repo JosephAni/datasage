@@ -206,6 +206,10 @@ document.addEventListener('DOMContentLoaded', function() {
     document.addEventListener('dataStateUpdated', function(event) {
         const dataState = event.detail;
         updateDataPreview(dataState);
+        // Call generateDataSummary when data is loaded
+        if (dataState && dataState.preview && dataState.preview.length > 0) {
+            generateDataSummary(dataState);
+        }
     });
 
     function updateDataPreview(dataState) {
@@ -216,13 +220,13 @@ document.addEventListener('DOMContentLoaded', function() {
         headersContainer.innerHTML = '';
         bodyContainer.innerHTML = '';
 
-        if (!dataState || !dataState.data || dataState.data.length === 0) {
+        if (!dataState || !dataState.preview || dataState.preview.length === 0) {
             bodyContainer.innerHTML = '<tr><td colspan="100%" class="text-center">No data loaded</td></tr>';
             return;
         }
 
         // Add headers
-        const headers = Object.keys(dataState.data[0]);
+        const headers = Object.keys(dataState.preview[0]);
         headers.forEach(header => {
             const th = document.createElement('th');
             th.textContent = header;
@@ -230,7 +234,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // Add data rows (limit to 100 rows for preview)
-        const previewRows = dataState.data.slice(0, 100);
+        const previewRows = dataState.preview.slice(0, 100);
         previewRows.forEach(row => {
             const tr = document.createElement('tr');
             headers.forEach(header => {

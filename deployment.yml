@@ -14,7 +14,11 @@ spec:
     spec:
       containers:
       - name: inventory-optimization
+<<<<<<< HEAD
         image: LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE:TAG
+=======
+        image: us-central1-docker.pkg.dev/inventory-optimization-444419/inventory-optimization/inventory-optimization:latest
+>>>>>>> feature
         ports:
         - containerPort: 8080
         resources:

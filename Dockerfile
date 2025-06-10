@@ -7,7 +7,11 @@ ENV PYTHONUNBUFFERED=1 \
     PORT=8080
 
 # Set working directory
+<<<<<<< HEAD
 WORKDIR /app
+=======
+WORKDIR /inventory-optimization
+>>>>>>> feature
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -28,4 +32,8 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
+<<<<<<< HEAD
 CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 app.py"]
+=======
+CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 inventory_optimization.py"]
+>>>>>>> feature

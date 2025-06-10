@@ -43,6 +43,8 @@ import math
 from data_manager import DataManager
 from functools import wraps
 from scipy.stats import norm
+from pandas.api.types import CategoricalDtype
+import functools
 
 # Load environment variables
 load_dotenv()
@@ -140,44 +142,14 @@ def load_sample_data():
 
 def get_session_data():
     """Get dataframe from current session with performance optimization"""
-    print("get_session_data: Function called")
     try:
-        print(f"get_session_data: session keys - {session.keys()}")
-
-        # --- Attempt to load DataFrame from session if available ---
-        if 'current_dataset' in session:
-            print("get_session_data: 'current_dataset' found in session")
-            df_json = session['current_dataset']
-            print(f"get_session_data: Type of session['current_dataset']: {type(df_json)}")
-
-            # Check if it's already a DataFrame (unlikely but for safety)
-            if isinstance(df_json, pd.DataFrame):
-                 print("get_session_data: 'current_dataset' is already a DataFrame")
-                 return df_json
-
-            # Try to load JSON string from session and convert back to DataFrame
-            try:
-                print("get_session_data: Attempting to read JSON from session")
-                df = pd.read_json(io.StringIO(df_json))
-                print("get_session_data: Successfully loaded DataFrame from session['current_dataset']")
-                print(f"get_session_data: Loaded DataFrame shape: {df.shape}")
-                print(f"get_session_data: Loaded DataFrame dtypes: {df.dtypes.to_dict()}")
-                return df
-            except Exception as e:
-                print(f"get_session_data: Error loading DataFrame from session JSON: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                # If loading from session fails, fall through to the rest of the logic
-
-        else:
-            print("get_session_data: 'current_dataset' not found in session")
-
-        # --------------------------------------------------------------------
-
-        # Get filepath from session, with a default of None
         filepath = session.get('filepath', None)
-        print(f"get_session_data: filepath from session - {filepath}")
-
+        print(f"DEBUG: session['filepath'] = {filepath}")
+        if filepath and os.path.exists(filepath):
+            print("DEBUG: File exists.")
+        else:
+            print("DEBUG: File does not exist or not set.")
+        
         # Check if filepath exists and is valid
         if not filepath or not isinstance(filepath, str) or not os.path.exists(filepath):
             print("get_session_data: filepath invalid or not found, checking cleaned_filepath or database")
@@ -2034,7 +2006,6 @@ def calculate_costs(order_size, annual_demand, order_cost, unit_cost, holding_ra
 
 @app.route('/api/clv/data/preview', methods=['GET'])
 def get_clv_data_preview():
-    """Return a preview of the data for CLV analysis"""
     try:
         df = get_session_data()
         if df is None:
@@ -2050,6 +2021,9 @@ def get_clv_data_preview():
         quantity_cols = [col for col in columns if any(term in col.lower() for term in ['quantity', 'qty', 'amount', 'count'])]
         price_cols = [col for col in columns if any(term in col.lower() for term in ['price', 'value', 'revenue', 'sales'])]
         
+        # Get data info
+        info = get_data_info().json if hasattr(get_data_info(), 'json') else {}
+
         return jsonify({
             'columns': columns,
             'dtypes': dtypes,
@@ -2060,9 +2034,9 @@ def get_clv_data_preview():
                 'price': price_cols
             },
             'rows': len(df),
-            'dataset_name': session.get('filename', 'Unknown')
+            'dataset_name': session.get('filename', 'Unknown'),
+            'data_info': info  # Add this line
         })
-        
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -2090,18 +2064,18 @@ def calculate_clv():
         today = df[date_col].max()
         
         rfm = df.groupby(customer_id_col).agg({
-                date_col: lambda x: (today - x.max()).days,  # Recency
-                customer_id_col: 'count',  # Frequency
-                amount_col: 'sum'  # Monetary
-            }).rename(columns={
-                date_col: 'Recency',
-                customer_id_col: 'Frequency',
-                amount_col: 'Monetary'
-            })
-
+            date_col: lambda x: (today - x.max()).days,  # Recency
+            amount_col: 'sum'  # Monetary
+        }).reset_index()
         
-        # Rename columns
-        rfm.columns = [customer_id_col, 'recency', 'frequency', 'monetary']
+        # Rename columns to standard names
+        rfm = rfm.rename(columns={date_col: 'recency', amount_col: 'monetary'})
+        
+        # Add frequency as a new column (number of transactions per customer)
+        rfm['frequency'] = df.groupby(customer_id_col).size().values
+        
+        # Reorder columns
+        rfm = rfm[[customer_id_col, 'recency', 'frequency', 'monetary']]
         
         # Calculate CLV
         # Using a simple formula: CLV = Average Order Value × Purchase Frequency × Customer Lifespan
@@ -2416,41 +2390,23 @@ def api_data_overview():
     df = get_session_data()
     if df is None:
         return jsonify({"error": "No data loaded"})
-    
-    # Basic dataset statistics
     overview = {
-        'row_count': len(df),
-        'column_count': len(df.columns),
-        'missing_values': int(df.isna().sum().sum()),
-        'duplicate_rows': int(df.duplicated().sum()),
-        'memory_usage': int(df.memory_usage(deep=True).sum()),
+        'metadata': {
+            'row_count': len(df),
+            'column_count': len(df.columns),
+            'filename': session.get('filename', 'Unknown'),
+            'last_updated': datetime.datetime.now().isoformat()
+        },
+        'dtype_counts': {str(k): int(v) for k, v in df.dtypes.value_counts().to_dict().items()},
         'columns': df.columns.tolist(),
-    }
-    
-    # Column statistics
-    column_stats = {}
-    for col in df.columns:
-        stats = {
-            'dtype': str(df[col].dtype),
-            'missing_count': int(df[col].isna().sum()),
-            'missing_percentage': float(df[col].isna().mean() * 100),
-            'unique_count': int(df[col].nunique()),
+        'column_stats': {
+            col: {
+                'dtype': str(df[col].dtype),
+                'missing': int(df[col].isna().sum()),
+                'unique_values': int(df[col].nunique())
+            } for col in df.columns
         }
-        
-        # Add numeric statistics if applicable
-        if pd.api.types.is_numeric_dtype(df[col]):
-            stats.update({
-                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
-                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None,
-                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
-                'median': float(df[col].median()) if not pd.isna(df[col].median()) else None,
-                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None
-            })
-        
-        column_stats[col] = stats
-    
-    overview['column_stats'] = column_stats
-    
+    }
     return jsonify(overview)
 
 @app.route('/api/data/skewness', methods=['GET'])
@@ -2982,6 +2938,67 @@ def api_feature_selection():
             return jsonify({
                 "top_variance_features": top_features.to_dict()
             })
+        
+        elif method == 'random_forest':
+            # Use RandomForest for feature importance
+            from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+            from sklearn.preprocessing import LabelEncoder
+            # Only use numeric columns for features
+            feature_cols = [col for col in df.select_dtypes(include=['number']).columns if col != target]
+            if not target:
+                return jsonify({"error": "Target column required for random_forest method"}), 400
+            if target not in df.columns:
+                return jsonify({"error": f"Target column {target} not found"}), 400
+            X = df[feature_cols].fillna(0)
+            y = df[target]
+            # Determine if classification or regression
+            if y.dtype == 'object' or y.dtype.name == 'category':
+                y = LabelEncoder().fit_transform(y.astype(str))
+                model = RandomForestClassifier(n_estimators=100, random_state=42)
+            else:
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+            try:
+                model.fit(X, y)
+                importances = model.feature_importances_
+                sorted_idx = importances.argsort()[::-1]
+                features = [feature_cols[i] for i in sorted_idx[:n_features]]
+                scores = [float(importances[i]) for i in sorted_idx[:n_features]]
+                return jsonify({
+                    "features": [{"name": f, "score": s} for f, s in zip(features, scores)],
+                    "method": "random_forest",
+                    "n_features": n_features
+                })
+            except Exception as e:
+                return jsonify({"error": f"Random forest error: {str(e)}"}), 400
+        
+        elif method == 'mutual_info':
+            # Use mutual information for feature selection
+            from sklearn.feature_selection import mutual_info_regression, mutual_info_classif
+            from sklearn.preprocessing import LabelEncoder
+            feature_cols = [col for col in df.select_dtypes(include=['number']).columns if col != target]
+            if not target:
+                return jsonify({"error": "Target column required for mutual_info method"}), 400
+            if target not in df.columns:
+                return jsonify({"error": f"Target column {target} not found"}), 400
+            X = df[feature_cols].fillna(0)
+            y = df[target]
+            # Determine if classification or regression
+            try:
+                if y.dtype == 'object' or y.dtype.name == 'category':
+                    y = LabelEncoder().fit_transform(y.astype(str))
+                    scores = mutual_info_classif(X, y, random_state=42)
+                else:
+                    scores = mutual_info_regression(X, y, random_state=42)
+                sorted_idx = scores.argsort()[::-1]
+                features = [feature_cols[i] for i in sorted_idx[:n_features]]
+                top_scores = [float(scores[i]) for i in sorted_idx[:n_features]]
+                return jsonify({
+                    "features": [{"name": f, "score": s} for f, s in zip(features, top_scores)],
+                    "method": "mutual_info",
+                    "n_features": n_features
+                })
+            except Exception as e:
+                return jsonify({"error": f"Mutual information error: {str(e)}"}), 400
         
         else:
             return jsonify({"error": f"Unsupported method: {method}"}), 400
@@ -3532,6 +3549,262 @@ def impute_missing_values():
     except Exception as e:
         print(f"Error in data imputation: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/api/session/set-file', methods=['POST'])
+def set_session_file():
+    """Set the session's current file for data preview and cleaning."""
+    try:
+        data = request.get_json()
+        filepath = data.get('filepath')
+        filename = data.get('filename')
+        if not filepath or not filename:
+            return jsonify({'error': 'filepath and filename are required'}), 400
+        if not os.path.exists(filepath):
+            return jsonify({'error': f'File does not exist: {filepath}'}), 400
+        session['filepath'] = filepath
+        session['filename'] = filename
+        return jsonify({'success': True, 'filepath': filepath, 'filename': filename})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/data/missing-values', methods=['GET'])
+def api_missing_values():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    missing_df = []
+    for col in df.columns:
+        missing = df[col].isna().sum()
+        percent = (missing / len(df)) * 100 if len(df) > 0 else 0
+        if missing > 0:
+            missing_df.append({
+                "column": col,
+                "missing_values": int(missing),
+                "percent_missing": percent
+            })
+    return jsonify({"missing_df": missing_df})
+
+@app.route('/api/data/statistics', methods=['GET'])
+def api_statistics():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    numeric_stats = {}
+    categorical_stats = {}
+    for col in df.columns:
+        if pd.api.types.is_numeric_dtype(df[col]):
+            stats = {
+                'count': int(df[col].count()),
+                'mean': float(df[col].mean()) if not pd.isna(df[col].mean()) else None,
+                'std': float(df[col].std()) if not pd.isna(df[col].std()) else None,
+                'min': float(df[col].min()) if not pd.isna(df[col].min()) else None,
+                '25%': float(df[col].quantile(0.25)) if not pd.isna(df[col].quantile(0.25)) else None,
+                '50%': float(df[col].median()) if not pd.isna(df[col].median()) else None,
+                '75%': float(df[col].quantile(0.75)) if not pd.isna(df[col].quantile(0.75)) else None,
+                'max': float(df[col].max()) if not pd.isna(df[col].max()) else None
+            }
+            numeric_stats[col] = stats
+        else:
+            value_counts = df[col].value_counts(dropna=False)
+            if not value_counts.empty:
+                top_value = value_counts.index[0]
+                top_count = value_counts.iloc[0]
+                top_percent = (top_count / len(df)) * 100 if len(df) > 0 else 0
+                categorical_stats[col] = {
+                    'unique_values': int(df[col].nunique(dropna=False)),
+                    'top_value': str(top_value),
+                    'top_count': int(top_count),
+                    'top_percent': top_percent
+                }
+    return jsonify({
+        'numeric_stats': numeric_stats,
+        'categorical_stats': categorical_stats
+    })
+
+@app.route('/api/data/correlation', methods=['GET'])
+def api_correlation():
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    numeric_df = df.select_dtypes(include=['number'])
+    if numeric_df.empty:
+        return jsonify({"error": "No numeric columns for correlation analysis"})
+    corr_matrix = numeric_df.corr().round(3)
+    columns = corr_matrix.columns.tolist()
+    correlation_matrix = corr_matrix.values.tolist()
+    return jsonify({
+        'columns': columns,
+        'correlation_matrix': correlation_matrix
+    })
+
+@app.route('/api/data/distribution/<column>', methods=['GET'])
+def api_distribution(column):
+    df = get_session_data()
+    if df is None:
+        return jsonify({"error": "No data loaded"})
+    if column not in df.columns:
+        return jsonify({"error": f"Column {column} not found"})
+    if not pd.api.types.is_numeric_dtype(df[column]):
+        return jsonify({"error": "Distribution analysis only supported for numeric columns"})
+    # Compute histogram
+    data = df[column].dropna()
+    frequencies, bins = np.histogram(data, bins=10)
+    # Convert bin edges to string labels for better chart display
+    bin_labels = [f'{round(bins[i],2)} - {round(bins[i+1],2)}' for i in range(len(bins)-1)]
+    return jsonify({
+        'bins': bin_labels,
+        'frequencies': frequencies.tolist()
+    })
+
+@app.route('/api/data/hypothesis-test', methods=['POST'])
+def api_hypothesis_test():
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("hypothesis-test")
+
+    try:
+        df = get_session_data()
+        if df is None:
+            logger.error("No data loaded in session.")
+            return jsonify({"error": "No data loaded"}), 400
+
+        data = request.get_json()
+        logger.info(f"Received hypothesis test request: {data}")
+        column = data.get('column')
+        test_type = data.get('test_type')
+
+        if not column or column not in df.columns:
+            logger.error(f"Invalid or missing column: {column}")
+            return jsonify({"error": "Invalid or missing column"}), 400
+        if not test_type:
+            logger.error("Test type required but not provided.")
+            return jsonify({"error": "Test type required"}), 400
+
+        import scipy.stats as stats
+        result = {}
+
+        if test_type == 'ttest':
+            try:
+                stat, p = stats.ttest_1samp(df[column].dropna(), 0)
+                interpretation = 'Likely different from 0' if p < 0.05 else 'Not significantly different from 0'
+                result = {
+                    'test_name': 'One-sample T-Test',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"T-Test error: {str(e)}")
+                return jsonify({'error': f'T-Test error: {str(e)}'}), 400
+
+        elif test_type == 'anova':
+            if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+                logger.error(f"ANOVA requires a categorical column. Got: {column} ({df[column].dtype})")
+                return jsonify({'error': 'ANOVA requires a categorical column'}), 400
+            try:
+                groups = [df[df[column] == val].dropna().select_dtypes(include=['number']).values.flatten() for val in df[column].dropna().unique()]
+                # Only keep groups with at least 2 values and nonzero variance
+                valid_groups = [g for g in groups if len(g) > 1 and np.var(g) > 0]
+                if len(valid_groups) < 2:
+                    logger.error("Not enough data or variance in groups to perform ANOVA.")
+                    return jsonify({'error': 'Not enough data or variance in groups to perform ANOVA.'}), 400
+                stat, p = stats.f_oneway(*valid_groups)
+                interpretation = 'At least one group mean is different' if p < 0.05 else 'No significant difference between group means'
+                result = {
+                    'test_name': 'ANOVA',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"ANOVA error: {str(e)}")
+                return jsonify({'error': f'ANOVA error: {str(e)}'}), 400
+
+        elif test_type == 'chi2':
+            if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+                logger.error(f"Chi-square requires a categorical column. Got: {column} ({df[column].dtype})")
+                return jsonify({'error': 'Chi-square requires a categorical column'}), 400
+            try:
+                observed = df[column].value_counts().values
+                stat, p = stats.chisquare(observed)
+                # Check for NaN results
+                if np.isnan(stat) or np.isnan(p):
+                    logger.error("Not enough data or variance to perform Chi-square test.")
+                    return jsonify({'error': 'Not enough data or variance to perform Chi-square test.'}), 400
+                interpretation = 'Distribution is not uniform' if p < 0.05 else 'No significant deviation from uniform distribution'
+                result = {
+                    'test_name': 'Chi-Square',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"Chi-square error: {str(e)}")
+                return jsonify({'error': f'Chi-square error: {str(e)}'}), 400
+
+        else:
+            logger.error(f"Unsupported test type: {test_type}")
+            return jsonify({'error': 'Unsupported test type'}), 400
+
+        logger.info(f"Hypothesis test result: {result}")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Unexpected error in hypothesis test: {str(e)}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 400
+
+@app.route('/api/data/eda', methods=['GET'])
+def api_data_eda():
+    """Return basic EDA (Exploratory Data Analysis) results for the dataset."""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({'error': 'No data loaded'}), 400
+
+        # Shape
+        shape = {'rows': int(df.shape[0]), 'cols': int(df.shape[1])}
+
+        # Memory usage (in MB)
+        memory_usage = float(df.memory_usage(deep=True).sum() / (1024 ** 2))
+
+        # Data type counts
+        dtype_counts = {str(k): int(v) for k, v in df.dtypes.value_counts().items()}
+
+        # Numeric summary
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        numeric_summary = None
+        if len(numeric_cols) > 0:
+            numeric_summary = df[numeric_cols].describe().to_dict()
+
+        # Correlation matrix
+        correlation_matrix = None
+        correlation_columns = None
+        if len(numeric_cols) > 1:
+            corr = df[numeric_cols].corr().round(3)
+            correlation_matrix = corr.values.tolist()
+            correlation_columns = corr.columns.tolist()
+
+        # Categorical summary
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+        categorical_summary = {}
+        for col in categorical_cols:
+            value_counts = df[col].value_counts().head(10)
+            categorical_summary[col] = {
+                'labels': value_counts.index.astype(str).tolist(),
+                'values': value_counts.values.tolist()
+            }
+
+        return jsonify({
+            'shape': shape,
+            'memory_usage': memory_usage,
+            'dtype_counts': dtype_counts,
+            'numeric_summary': numeric_summary,
+            'correlation_matrix': correlation_matrix,
+            'correlation_columns': correlation_columns,
+            'categorical_summary': categorical_summary
+        })
+    except Exception as e:
+        return jsonify({'error': f'EDA error: {str(e)}'}), 400
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 

@@ -85,6 +85,15 @@ document.addEventListener('DOMContentLoaded', function() {
         e.preventDefault();
         await calculateCLV();
     });
+
+    fetch('/api/data/info')
+      .then(response => response.json())
+      .then(info => {
+        // Display info.metadata, info.column_types, info.column_stats, etc.
+        // For example:
+        document.getElementById('dataset-name').textContent = info.metadata.filename;
+        // ...populate other UI elements as needed
+      });
 });
 
 async function updateUI() {
@@ -196,9 +205,87 @@ async function fetchDatasetInfo() {
 function displayResults(results) {
     const resultsDiv = document.getElementById('results');
     resultsDiv.style.display = 'block';
-    
-    // Implementation of results display...
-    // This will be customized based on the actual CLV calculation results
+
+    if (!results || !results.summary) {
+        resultsDiv.innerHTML = '<div class="alert alert-warning">No results to display.</div>';
+        return;
+    }
+
+    // Show summary
+    let html = `
+        <h4>CLV Summary</h4>
+        <ul>
+            <li><strong>Total Customers:</strong> ${results.summary.total_customers}</li>
+            <li><strong>Average CLV:</strong> ${results.summary.average_clv.toFixed(2)}</li>
+            <li><strong>Total Revenue:</strong> ${results.summary.total_revenue.toFixed(2)}</li>
+            <li><strong>Average Order Value:</strong> ${results.summary.average_order_value.toFixed(2)}</li>
+        </ul>
+        <button id="download-clv" class="btn btn-success mb-3">Download Full CLV Results (CSV)</button>
+        <div id="clv-chart" style="height:400px;"></div>
+        <h5>Top 5 Customers by CLV</h5>
+    `;
+
+    // Show top 5 customers by CLV, display all fields
+    const topCustomers = (results.customers || []).sort((a, b) => b.clv - a.clv).slice(0, 5);
+    if (topCustomers.length > 0) {
+        const allFields = Object.keys(topCustomers[0]);
+        html += `<table class="table table-sm"><thead><tr>`;
+        allFields.forEach(field => {
+            html += `<th>${field}</th>`;
+        });
+        html += `</tr></thead><tbody>`;
+        topCustomers.forEach(cust => {
+            html += '<tr>';
+            allFields.forEach(field => {
+                let val = cust[field];
+                if (typeof val === 'number') val = val.toFixed(2);
+                html += `<td>${val}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</tbody></table>';
+    }
+
+    resultsDiv.innerHTML = html;
+
+    // Plotly bar chart for top 10 customers by CLV
+    const top10 = (results.customers || []).sort((a, b) => b.clv - a.clv).slice(0, 10);
+    const ids = top10.map(c => c['Customer ID'] || c['customer_id'] || c[Object.keys(c)[0]]);
+    const clvs = top10.map(c => c.clv);
+    Plotly.newPlot('clv-chart', [{
+        x: ids,
+        y: clvs,
+        type: 'bar',
+        marker: {color: 'rgba(40,167,69,0.7)'},
+        text: clvs.map(v => v.toFixed(2)),
+        textposition: 'auto',
+    }], {
+        title: 'Top 10 Customers by CLV',
+        xaxis: {title: 'Customer ID'},
+        yaxis: {title: 'CLV'},
+        margin: {t: 40}
+    });
+
+    // Download CSV functionality
+    document.getElementById('download-clv').onclick = function() {
+        const customers = results.customers || [];
+        if (customers.length === 0) return;
+        const fields = Object.keys(customers[0]);
+        const csvRows = [fields.join(',')];
+        customers.forEach(row => {
+            csvRows.push(fields.map(f => JSON.stringify(row[f] ?? '')).join(','));
+        });
+        const csvContent = csvRows.join('\n');
+        const blob = new Blob([csvContent], {type: 'text/csv'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'clv_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
 }
 
 function showError(message) {

@@ -34,17 +34,31 @@
         columnTypes: null,
         columnStats: null,
         preview: null,
+        merged: null,
         
         async initialize() {
             try {
-                const response = await fetch('/api/data/info');
-                if (response.ok) {
-                    const data = await response.json();
+                const [infoRes, previewRes] = await Promise.all([
+                    fetch('/api/data/info'),
+                    fetch('/api/data/preview')
+                ]);
+                if (infoRes.ok && previewRes.ok) {
+                    const info = await infoRes.json();
+                    const preview = await previewRes.json();
                     this.isLoaded = true;
-                    this.metadata = data.metadata;
-                    this.columnTypes = data.column_types;
-                    this.columnStats = data.column_stats;
-                    document.dispatchEvent(new CustomEvent('dataStateUpdated'));
+                    this.metadata = info.metadata;
+                    this.columnTypes = info.column_types;
+                    this.columnStats = info.column_stats;
+                    this.preview = preview;
+                    // Merge for data cleaning
+                    this.merged = {
+                        dtypes: info.column_types,
+                        columns: preview.columns,
+                        preview: preview.data,
+                        row_count: preview.row_count,
+                        columns_stats: info.column_stats
+                    };
+                    document.dispatchEvent(new CustomEvent('dataStateUpdated', { detail: this.merged }));
                 } else {
                     this.isLoaded = false;
                     console.log('Data not yet loaded or unavailable');
