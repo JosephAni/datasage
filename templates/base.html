@@ -26,6 +26,30 @@
     
     {% block extra_head %}{% endblock %}
 
+    <style>
+    /* Sidebar submenu on hover */
+    #sidebar ul.components li:hover > ul.collapse {
+        display: block !important;
+        height: auto !important;
+        visibility: visible;
+        opacity: 1;
+        position: static;
+        background: #23272b;
+        margin-left: 10px;
+        box-shadow: none;
+    }
+    #sidebar ul.components ul.collapse {
+        transition: none;
+        display: none;
+        background: #23272b;
+        padding-left: 10px;
+    }
+    #sidebar ul.components li > a.dropdown-toggle:after {
+        float: right;
+        margin-top: 8px;
+    }
+    </style>
+
     <script>
     // Global data management
     const DataState = {
@@ -95,6 +119,18 @@
     document.addEventListener('DOMContentLoaded', () => {
         DataState.initialize();
     });
+
+    // Ensure submenus open on hover as well as click
+    $(function() {
+        $('#sidebar ul.components li').has('ul.collapse').hover(
+            function() {
+                $(this).find('ul.collapse').addClass('show').css('display', 'block');
+            },
+            function() {
+                $(this).find('ul.collapse').removeClass('show').css('display', '');
+            }
+        );
+    });
     </script>
 </head>
 <body>
@@ -102,7 +138,7 @@
         <!-- Sidebar -->
         <nav id="sidebar" class="bg-dark">
             <div class="sidebar-header">
-                <h3>AI-Powered Data Cleaning Agent</h3>
+                <h3>DataSage</h3>
             </div>
 
             <ul class="list-unstyled components">
@@ -118,83 +154,88 @@
                 </li>
                 <li>
                     <a href="#dataSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
-                        <i class="fas fa-database"></i> Data Cleaning
+                        <i class="fas fa-broom"></i> Data Cleaning
+                        <i class="fas fa-chevron-right float-end"></i>
                     </a>
                     <ul class="collapse list-unstyled" id="dataSubmenu">
                         <li>
-                            <a href="/data_cleaning" class="nav-link">Basic Cleaning</a>
+                            <a href="/data_cleaning" class="nav-link"><i class="fas fa-broom"></i> Basic Cleaning</a>
                         </li>
                         <li>
-                            <a href="/advanced_data_cleaning" class="nav-link">Advanced Cleaning</a>
+                            <a href="/advanced_data_cleaning" class="nav-link"><i class="fas fa-broom"></i> Advanced Cleaning</a>
                         </li>
                         <li>
-                            <a href="/convert_data_types" class="nav-link">Convert Data Types</a>
+                            <a href="/convert_data_types" class="nav-link"><i class="fas fa-exchange-alt"></i> Convert Data Types</a>
                         </li>
                     </ul>
                 </li>
                 <li>
                     <a href="#analysisSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
-                        <i class="fas fa-chart-bar"></i> Analysis
+                        <i class="fas fa-chart-pie"></i> Analysis
+                        <i class="fas fa-chevron-right float-end"></i>
                     </a>
                     <ul class="collapse list-unstyled" id="analysisSubmenu">
                         <li>
-                            <a href="/data_interpretation" class="nav-link">Data Interpretation</a>
+                            <a href="/data_interpretation" class="nav-link"><i class="fas fa-chart-line"></i> Data Interpretation</a>
                         </li>
                         <li>
-                            <a href="/advanced_data_analysis" class="nav-link">Advanced Analysis</a>
+                            <a href="/advanced_data_analysis" class="nav-link"><i class="fas fa-chart-bar"></i> Advanced Analysis</a>
                         </li>
                         <li>
-                            <a href="/feature_engineering" class="nav-link">Feature Engineering</a>
+                            <a href="/feature_engineering" class="nav-link"><i class="fas fa-cogs"></i> Feature Engineering</a>
                         </li>
                     </ul>
                 </li>
                 <li>
                     <a href="#mlSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
-                        <i class="fas fa-brain"></i> Machine Learning
+                        <i class="fas fa-robot"></i> Machine Learning
+                        <i class="fas fa-chevron-right float-end"></i>
                     </a>
                     <ul class="collapse list-unstyled" id="mlSubmenu">
                         <li>
-                            <a href="/machine_learning" class="nav-link">ML Models</a>
+                            <a href="/machine_learning" class="nav-link"><i class="fas fa-brain"></i> ML Models</a>
                         </li>
                         <li>
-                            <a href="/time_series" class="nav-link">Time Series</a>
+                            <a href="/time_series" class="nav-link"><i class="fas fa-clock"></i> Time Series</a>
                         </li>
                         <li>
-                            <a href="/demand_forecasting" class="nav-link">Demand Forecasting</a>
+                            <a href="/demand_forecasting" class="nav-link"><i class="fas fa-bolt"></i> Demand Forecasting</a>
                         </li>
                     </ul>
                 </li>
                 <li>
                     <a href="#inventorySubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
                         <i class="fas fa-boxes"></i> Inventory
+                        <i class="fas fa-chevron-right float-end"></i>
                     </a>
                     <ul class="collapse list-unstyled" id="inventorySubmenu">
                         <li>
-                            <a href="/inventory_turnover" class="nav-link">Turnover</a>
+                            <a href="/inventory_turnover" class="nav-link"><i class="fas fa-sync-alt"></i> Turnover</a>
                         </li>
                         <li>
-                            <a href="/cost_of_inventory" class="nav-link">Cost Analysis</a>
+                            <a href="/cost_of_inventory" class="nav-link"><i class="fas fa-balance-scale"></i> Cost Analysis</a>
                         </li>
                         <li>
-                            <a href="/eoq_simulation" class="nav-link">EOQ Simulation</a>
+                            <a href="/eoq_simulation" class="nav-link"><i class="fas fa-chart-area"></i> EOQ Simulation</a>
                         </li>
                         <li>
-                            <a href="/newsvendor_simulation" class="nav-link">Newsvendor</a>
+                            <a href="/newsvendor_simulation" class="nav-link"><i class="fas fa-newspaper"></i> Newsvendor</a>
                         </li>
                         <li>
-                            <a href="/safety_stock" class="nav-link">Safety Stock</a>
+                            <a href="/safety_stock" class="nav-link"><i class="fas fa-shield-alt"></i> Safety Stock</a>
+                        </li>
+                        <li>
+                            <a href="/price_simulation" class="nav-link"><i class="fas fa-dollar-sign"></i> Price Simulation</a>
+                        </li>
+                        <li>
+                            <a href="/assortment_planning" class="nav-link"><i class="fas fa-th-large"></i> Assortment Planning</a>
                         </li>
                     </ul>
                 </li>
                 <li>
-                    <a href="#customerSubmenu" data-bs-toggle="collapse" class="nav-link dropdown-toggle">
-                        <i class="fas fa-users"></i> Customer Analysis
+                    <a href="/clv_analysis" class="nav-link">
+                        <i class="fas fa-users"></i> CLV Analysis
                     </a>
-                    <ul class="collapse list-unstyled" id="customerSubmenu">
-                        <li>
-                            <a href="/clv_analysis" class="nav-link">CLV Analysis</a>
-                        </li>
-                    </ul>
                 </li>
                 <li>
                     <a href="/data_visualization" class="nav-link">

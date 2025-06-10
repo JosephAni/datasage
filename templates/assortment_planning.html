@@ -1,0 +1,301 @@
+{% extends 'base.html' %}
+
+{% block title %}Assortment Planning{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h1>Assortment Planning Simulation <i class="fas fa-shopping-bag"></i></h1>
+    <div class="card bg-dark text-white mb-4">
+        <div class="card-body">
+            <h3 class="card-title">Space Allocation Optimizer</h3>
+            <p class="card-text">Optimize shelf space allocation across products considering cross-space effects and margins.</p>
+        </div>
+    </div>
+    <form method="post" action="{{ url_for('assortment_planning') }}" id="assortment-form">
+        <h4>Product Types</h4>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label for="p1_type" class="form-label">Product 1 Type</label>
+                <select class="form-select product-type-select" id="p1_type" name="p1_type"></select>
+            </div>
+            <div class="col-md-4">
+                <label for="p2_type" class="form-label">Product 2 Type</label>
+                <select class="form-select product-type-select" id="p2_type" name="p2_type"></select>
+            </div>
+            <div class="col-md-4">
+                <label for="p3_type" class="form-label">Product 3 Type</label>
+                <select class="form-select product-type-select" id="p3_type" name="p3_type"></select>
+            </div>
+        </div>
+        <div class="row mb-3" id="custom-product-row">
+            <div class="col-md-4">
+                <input type="text" class="form-control custom-product-input" id="custom1" placeholder="Custom 1" value="Custom 1">
+            </div>
+            <div class="col-md-4">
+                <input type="text" class="form-control custom-product-input" id="custom2" placeholder="Custom 2" value="Custom 2">
+            </div>
+            <div class="col-md-4">
+                <input type="text" class="form-control custom-product-input" id="custom3" placeholder="Custom 3" value="Custom 3">
+            </div>
+        </div>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <h5 id="p1_header">Product 1 ({{ form_data.p1_type }})</h5>
+                <label>Space (p1)</label>
+                <input type="number" class="form-control" name="p1_space" value="{{ form_data.p1_space }}" min="0" step="1">
+                <label>Base Demand (p1)</label>
+                <input type="number" class="form-control" name="p1_base_demand" value="{{ form_data.p1_base_demand }}" min="0" step="100">
+                <label>Margin (p1)</label>
+                <input type="number" class="form-control" name="p1_margin" value="{{ form_data.p1_margin }}" min="0" step="0.1">
+            </div>
+            <div class="col-md-4">
+                <h5 id="p2_header">Product 2 ({{ form_data.p2_type }})</h5>
+                <label>Space (p2)</label>
+                <input type="number" class="form-control" name="p2_space" value="{{ form_data.p2_space }}" min="0" step="1">
+                <label>Base Demand (p2)</label>
+                <input type="number" class="form-control" name="p2_base_demand" value="{{ form_data.p2_base_demand }}" min="0" step="100">
+                <label>Margin (p2)</label>
+                <input type="number" class="form-control" name="p2_margin" value="{{ form_data.p2_margin }}" min="0" step="0.1">
+            </div>
+            <div class="col-md-4">
+                <h5 id="p3_header">Product 3 ({{ form_data.p3_type }})</h5>
+                <label>Space (p3)</label>
+                <input type="number" class="form-control" name="p3_space" value="{{ form_data.p3_space }}" min="0" step="1">
+                <label>Base Demand (p3)</label>
+                <input type="number" class="form-control" name="p3_base_demand" value="{{ form_data.p3_base_demand }}" min="0" step="100">
+                <label>Margin (p3)</label>
+                <input type="number" class="form-control" name="p3_margin" value="{{ form_data.p3_margin }}" min="0" step="0.1">
+            </div>
+        </div>
+        <h4>Cross-space Effects</h4>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <h6 id="p1_effects_header">{{ form_data.p1_type }} Effects</h6>
+                <label id="p1_p1_label">p1 → p1</label>
+                <input type="number" class="form-control" name="p1_p1" value="{{ form_data.p1_p1 }}" step="0.001">
+                <label id="p1_p2_label">p1 → p2</label>
+                <input type="number" class="form-control" name="p1_p2" value="{{ form_data.p1_p2 }}" step="0.001">
+                <label id="p1_p3_label">p1 → p3</label>
+                <input type="number" class="form-control" name="p1_p3" value="{{ form_data.p1_p3 }}" step="0.001">
+            </div>
+            <div class="col-md-4">
+                <h6 id="p2_effects_header">{{ form_data.p2_type }} Effects</h6>
+                <label id="p2_p1_label">p2 → p1</label>
+                <input type="number" class="form-control" name="p2_p1" value="{{ form_data.p2_p1 }}" step="0.001">
+                <label id="p2_p2_label">p2 → p2</label>
+                <input type="number" class="form-control" name="p2_p2" value="{{ form_data.p2_p2 }}" step="0.001">
+                <label id="p2_p3_label">p2 → p3</label>
+                <input type="number" class="form-control" name="p2_p3" value="{{ form_data.p2_p3 }}" step="0.001">
+            </div>
+            <div class="col-md-4">
+                <h6 id="p3_effects_header">{{ form_data.p3_type }} Effects</h6>
+                <label id="p3_p1_label">p3 → p1</label>
+                <input type="number" class="form-control" name="p3_p1" value="{{ form_data.p3_p1 }}" step="0.001">
+                <label id="p3_p2_label">p3 → p2</label>
+                <input type="number" class="form-control" name="p3_p2" value="{{ form_data.p3_p2 }}" step="0.001">
+                <label id="p3_p3_label">p3 → p3</label>
+                <input type="number" class="form-control" name="p3_p3" value="{{ form_data.p3_p3 }}" step="0.001">
+            </div>
+        </div>
+        <h4>Simulation Controls</h4>
+        <div class="row mb-3">
+            <div class="col-md-4">
+                <label for="focus_product" class="form-label">Focus Product</label>
+                <select class="form-select" id="focus_product" name="focus_product">
+                    <option value="p1" {% if form_data.focus_product == 'p1' %}selected{% endif %}>p1 ({{ form_data.p1_type }})</option>
+                    <option value="p2" {% if form_data.focus_product == 'p2' %}selected{% endif %}>p2 ({{ form_data.p2_type }})</option>
+                    <option value="p3" {% if form_data.focus_product == 'p3' %}selected{% endif %}>p3 ({{ form_data.p3_type }})</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="locked_product" class="form-label">Locked Product</label>
+                <select class="form-select" id="locked_product" name="locked_product">
+                    {% for p in ['p1', 'p2', 'p3'] if p != form_data.focus_product %}
+                    <option value="{{ p }}" {% if form_data.locked_product == p %}selected{% endif %}>{{ p }} ({{ form_data[p + '_type'] }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label for="min_space" class="form-label">Minimum Space</label>
+                <input type="number" class="form-control" id="min_space" name="min_space" value="{{ form_data.min_space }}" min="0" step="1">
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">RUN</button>
+    </form>
+    {% if results %}
+    <hr>
+    <h2>Results</h2>
+    <div class="row metric-container mb-4">
+        <div class="col metric-card">
+            <div class="metric-value">${{ results.optimal_total_profit | int | string | replace(',', '') }}</div>
+            <div class="metric-label">Optimal Total Profit</div>
+        </div>
+        <div class="col metric-card">
+            <div class="metric-value">${{ results.profit_improvement | int | string | replace(',', '') }}</div>
+            <div class="metric-label">Profit Improvement</div>
+        </div>
+        <div class="col metric-card">
+            <div class="metric-value">{{ results.improvement_pct | round(1) }}%</div>
+            <div class="metric-label">Improvement Percentage</div>
+        </div>
+    </div>
+    <h4>Optimal Allocation</h4>
+    <table class="table table-bordered">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Current Space</th>
+                <th>Optimal Space</th>
+                <th>Space Change</th>
+                <th>Optimal Profit</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in results.optimal_allocation %}
+            <tr>
+                <td>{{ row.product }}</td>
+                <td>{{ row.current_space }}</td>
+                <td>{{ row.optimal_space }}</td>
+                <td>{{ row.space_change }}</td>
+                <td>${{ row.optimal_profit | int | string | replace(',', '') }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <h4>Product Performance</h4>
+    <ul>
+        <li><strong>Highest Profit Product:</strong> {{ results.highest_profit.product_name }} with ${{ results.highest_profit.profit | int | string | replace(',', '') }} profit from {{ results.highest_profit.space }} units of space.</li>
+        <li><strong>Most Efficient Product:</strong> {{ results.highest_efficiency.product_name }} generating ${{ results.highest_efficiency.profit_per_space | round(2) }} profit per unit of space.</li>
+    </ul>
+    <h4>Product Relationships</h4>
+    <ul>
+        <li><strong>Strongest Positive Interaction:</strong> {{ results.strongest_positive.source_name }} positively affects {{ results.strongest_positive.target_name }} with a cross-effect of {{ results.strongest_positive.effect | round(3) }}.</li>
+        <li><strong>Strongest Negative Interaction:</strong> {{ results.strongest_negative.source_name }} negatively affects {{ results.strongest_negative.target_name }} with a cross-effect of {{ results.strongest_negative.effect | round(3) }}.</li>
+    </ul>
+    <h4>Strategic Recommendations</h4>
+    <ul>
+        {% for rec in results.recommendations %}
+        <li>{{ rec }}</li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Initial product list from backend
+const allProducts = {{ all_products|tojson }};
+let customProducts = ["Custom 1", "Custom 2", "Custom 3"];
+
+function getProductList() {
+    // Replace custom products with user input
+    return allProducts.map(p => {
+        if (p === "Custom 1") return customProducts[0];
+        if (p === "Custom 2") return customProducts[1];
+        if (p === "Custom 3") return customProducts[2];
+        return p;
+    });
+}
+
+function populateProductDropdowns() {
+    const productList = getProductList();
+    ["p1_type", "p2_type", "p3_type"].forEach((id, idx) => {
+        const select = document.getElementById(id);
+        const currentVal = select.value;
+        select.innerHTML = "";
+        productList.forEach(prod => {
+            const option = document.createElement('option');
+            option.value = prod;
+            option.text = prod;
+            if (prod === currentVal) option.selected = true;
+            select.appendChild(option);
+        });
+        // If current value is not in the new list, select the first
+        if (!productList.includes(currentVal)) {
+            select.selectedIndex = 0;
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Set initial custom product values from backend if available
+    customProducts = [
+        document.getElementById('custom1').value,
+        document.getElementById('custom2').value,
+        document.getElementById('custom3').value
+    ];
+    populateProductDropdowns();
+    // Listen for changes in custom product inputs
+    document.querySelectorAll('.custom-product-input').forEach((input, idx) => {
+        input.addEventListener('input', function() {
+            customProducts[idx] = input.value || `Custom ${idx+1}`;
+            populateProductDropdowns();
+            updateLabels();
+        });
+    });
+    // Listen for changes in product type dropdowns
+    document.querySelectorAll('.product-type-select').forEach(function(sel) {
+        sel.addEventListener('change', updateLabels);
+    });
+    document.getElementById('focus_product').addEventListener('change', updateLabels);
+    // Initial update
+    updateLabels();
+});
+
+function updateLabels() {
+    // Get selected product types
+    const p1 = document.getElementById('p1_type').value;
+    const p2 = document.getElementById('p2_type').value;
+    const p3 = document.getElementById('p3_type').value;
+    // Update headers
+    document.getElementById('p1_header').textContent = `Product 1 (${p1})`;
+    document.getElementById('p2_header').textContent = `Product 2 (${p2})`;
+    document.getElementById('p3_header').textContent = `Product 3 (${p3})`;
+    // Update cross-space effect section headers
+    document.getElementById('p1_effects_header').textContent = `${p1} Effects`;
+    document.getElementById('p2_effects_header').textContent = `${p2} Effects`;
+    document.getElementById('p3_effects_header').textContent = `${p3} Effects`;
+    // Update cross-space effect labels
+    document.getElementById('p1_p1_label').textContent = `${p1} → ${p1}`;
+    document.getElementById('p1_p2_label').textContent = `${p1} → ${p2}`;
+    document.getElementById('p1_p3_label').textContent = `${p1} → ${p3}`;
+    document.getElementById('p2_p1_label').textContent = `${p2} → ${p1}`;
+    document.getElementById('p2_p2_label').textContent = `${p2} → ${p2}`;
+    document.getElementById('p2_p3_label').textContent = `${p2} → ${p3}`;
+    document.getElementById('p3_p1_label').textContent = `${p3} → ${p1}`;
+    document.getElementById('p3_p2_label').textContent = `${p3} → ${p2}`;
+    document.getElementById('p3_p3_label').textContent = `${p3} → ${p3}`;
+    // Update Simulation Controls dropdowns
+    const focusSelect = document.getElementById('focus_product');
+    const lockedSelect = document.getElementById('locked_product');
+    // Update focus product options
+    focusSelect.options[0].text = `p1 (${p1})`;
+    focusSelect.options[1].text = `p2 (${p2})`;
+    focusSelect.options[2].text = `p3 (${p3})`;
+    // Update locked product options
+    const prevLocked = lockedSelect.value;
+    while (lockedSelect.options.length > 0) lockedSelect.remove(0);
+    const focusVal = focusSelect.value;
+    const options = [
+        {val: 'p1', label: `p1 (${p1})`},
+        {val: 'p2', label: `p2 (${p2})`},
+        {val: 'p3', label: `p3 (${p3})`}
+    ];
+    let foundPrev = false;
+    options.filter(opt => opt.val !== focusVal).forEach(opt => {
+        const o = document.createElement('option');
+        o.value = opt.val;
+        o.text = opt.label;
+        if (opt.val === prevLocked) {
+            o.selected = true;
+            foundPrev = true;
+        }
+        lockedSelect.appendChild(o);
+    });
+    if (!foundPrev && lockedSelect.options.length > 0) {
+        lockedSelect.options[0].selected = true;
+    }
+}
+</script>
+{% endblock %} 

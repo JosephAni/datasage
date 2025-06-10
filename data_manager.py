@@ -107,6 +107,18 @@ class DataManager:
                         traceback.print_exc()
                 # -----------------------------------------------------
 
+                # --- Convert likely numeric columns to numeric types ---
+                numeric_column_names = [
+                    'quantity', 'price', 'customer id', 'customer_id', 'invoice', 'stockcode', 'stock_code', 'stock code'
+                ]
+                for col in self.data.columns:
+                    if col.strip().lower().replace('_', ' ') in numeric_column_names:
+                        try:
+                            self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+                            print(f"Converted column '{col}' to numeric type.")
+                        except Exception as e:
+                            print(f"Warning: Could not convert column '{col}' to numeric: {str(e)}")
+
                 return True
             else:
                 print("Data loaded but appears to be empty")
@@ -329,6 +341,18 @@ class DataManager:
                 print("Saving to session...")
                 self._save_to_session()
                 
+            # --- Convert likely numeric columns to numeric types ---
+            numeric_column_names = [
+                'quantity', 'price', 'customer id', 'customer_id', 'invoice', 'stockcode', 'stock_code', 'stock code'
+            ]
+            for col in self.data.columns:
+                if col.strip().lower().replace('_', ' ') in numeric_column_names:
+                    try:
+                        self.data[col] = pd.to_numeric(self.data[col], errors='coerce')
+                        print(f"Converted column '{col}' to numeric type.")
+                    except Exception as e:
+                        print(f"Warning: Could not convert column '{col}' to numeric: {str(e)}")
+
             return True
             
         except Exception as e:

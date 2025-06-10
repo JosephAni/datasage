@@ -574,3 +574,8 @@ body {
     color: #4B70E2;
     margin-bottom: 10px;
 }
+
+/* Hide chevron for submenu links that get dropdown-toggle */
+#sidebar ul ul a.dropdown-toggle::after {
+    display: none !important;
+}

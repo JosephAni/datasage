@@ -169,224 +169,125 @@
 
 {% block scripts %}
 <script>
-// Global variables
 let distributionChart = null;
 
-// Initialize the page
 document.addEventListener('DOMContentLoaded', function() {
-    // Connect form controls
     document.getElementById('calculateBtn').addEventListener('click', calculateOptimalOrder);
     document.getElementById('simulateBtn').addEventListener('click', simulateOrder);
-    
-    // Link slider and input
+
     const orderSlider = document.getElementById('order-slider');
     const orderQuantity = document.getElementById('order-quantity');
-    
-    orderSlider.addEventListener('input', function() {
-        orderQuantity.value = this.value;
-    });
-    
-    orderQuantity.addEventListener('input', function() {
-        orderSlider.value = this.value;
-    });
-    
-    // Initial calculation
+    orderSlider.addEventListener('input', function() { orderQuantity.value = this.value; });
+    orderQuantity.addEventListener('input', function() { orderSlider.value = this.value; });
+
     calculateOptimalOrder();
 });
 
+function getFormData() {
+    return {
+        distribution: document.getElementById('distribution').value,
+        expected_demand: parseFloat(document.getElementById('expected_demand').value),
+        std_dev: parseFloat(document.getElementById('std_dev').value),
+        cost: parseFloat(document.getElementById('cost').value),
+        price: parseFloat(document.getElementById('price').value),
+        salvage_price: parseFloat(document.getElementById('salvage_price').value),
+        order_quantity: parseFloat(document.getElementById('order-quantity').value)
+    };
+}
+
 function calculateOptimalOrder() {
-    // Get form values
-    const distribution = document.getElementById('distribution').value;
-    const expectedDemand = parseFloat(document.getElementById('expected_demand').value);
-    const stdDev = parseFloat(document.getElementById('std_dev').value);
-    const cost = parseFloat(document.getElementById('cost').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const salvagePrice = parseFloat(document.getElementById('salvage_price').value);
-    
-    // Calculate newsvendor metrics
-    const criticalRatio = (price - cost) / (price - salvagePrice);
-    let optimalQ;
-    
-    if (distribution === 'Normal') {
-        // Normal distribution - using approximation
-        const z = normInv(criticalRatio);
-        optimalQ = expectedDemand + stdDev * z;
-    } else {
-        // Uniform distribution
-        const a = expectedDemand - stdDev * Math.sqrt(3);  // Lower bound
-        const b = expectedDemand + stdDev * Math.sqrt(3);  // Upper bound
-        optimalQ = a + (b - a) * criticalRatio;
-    }
-    
-    // Calculate expected metrics
-    const expectedSales = price * expectedDemand;
-    const expectedExcess = Math.max(0, optimalQ - expectedDemand);
-    const salvageRevenue = salvagePrice * expectedExcess;
-    const totalCost = cost * optimalQ;
-    const expectedProfit = expectedSales + salvageRevenue - totalCost;
-    
-    // Update display
-    document.getElementById('optimal-q').textContent = optimalQ.toFixed(2);
-    document.getElementById('critical-ratio').textContent = criticalRatio.toFixed(2);
-    document.getElementById('service-level').textContent = (criticalRatio * 100).toFixed(2) + '%';
-    document.getElementById('expected-profit').textContent = '$' + expectedProfit.toFixed(2);
-    document.getElementById('expected-sales').textContent = '$' + expectedSales.toFixed(2);
-    document.getElementById('expected-salvage').textContent = '$' + salvageRevenue.toFixed(2);
-    document.getElementById('total-cost').textContent = '$' + totalCost.toFixed(2);
-    
-    // Update slider range
-    const orderSlider = document.getElementById('order-slider');
-    orderSlider.min = Math.max(1, Math.floor(expectedDemand - 3 * stdDev));
-    orderSlider.max = Math.ceil(expectedDemand + 3 * stdDev);
-    
-    // Display distribution
-    updateDistributionChart(expectedDemand, stdDev, optimalQ, distribution);
+    const data = getFormData();
+    fetch('/api/newsvendor_simulation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.error) { alert('Error: ' + res.error); return; }
+        document.getElementById('optimal-q').textContent = res.optimal_q.toFixed(2);
+        document.getElementById('critical-ratio').textContent = res.critical_ratio.toFixed(2);
+        document.getElementById('service-level').textContent = res.service_level.toFixed(2) + '%';
+        document.getElementById('expected-profit').textContent = '$' + res.expected_profit.toFixed(2);
+        document.getElementById('expected-sales').textContent = '$' + res.expected_sales.toFixed(2);
+        document.getElementById('expected-salvage').textContent = '$' + res.expected_salvage.toFixed(2);
+        document.getElementById('total-cost').textContent = '$' + res.total_cost.toFixed(2);
+
+        // Update slider range
+        const orderSlider = document.getElementById('order-slider');
+        orderSlider.min = Math.max(1, Math.floor(data.expected_demand - 3 * data.std_dev));
+        orderSlider.max = Math.ceil(data.expected_demand + 3 * data.std_dev);
+
+        // Update chart
+        updateDistributionChart(res.chart_x, res.chart_y, res.optimal_q, data.distribution);
+    });
 }
 
 function simulateOrder() {
-    // Get parameters
-    const distribution = document.getElementById('distribution').value;
-    const expectedDemand = parseFloat(document.getElementById('expected_demand').value);
-    const stdDev = parseFloat(document.getElementById('std_dev').value);
-    const cost = parseFloat(document.getElementById('cost').value);
-    const price = parseFloat(document.getElementById('price').value);
-    const salvagePrice = parseFloat(document.getElementById('salvage_price').value);
-    const orderQuantity = parseFloat(document.getElementById('order-quantity').value);
-    
-    // Find optimal order again
-    const criticalRatio = (price - cost) / (price - salvagePrice);
-    let optimalQ;
-    
-    if (distribution === 'Normal') {
-        const z = normInv(criticalRatio);
-        optimalQ = expectedDemand + stdDev * z;
-    } else {
-        const a = expectedDemand - stdDev * Math.sqrt(3);
-        const b = expectedDemand + stdDev * Math.sqrt(3);
-        optimalQ = a + (b - a) * criticalRatio;
-    }
-    
-    // Run simulation
-    const periods = 100;
-    const yourProfit = simulateNewsvendor(periods, orderQuantity, expectedDemand, stdDev, price, cost, salvagePrice, distribution);
-    const optimalProfit = simulateNewsvendor(periods, optimalQ, expectedDemand, stdDev, price, cost, salvagePrice, distribution);
-    const profitDiff = optimalProfit - yourProfit;
-    
-    // Show results
-    document.getElementById('simulation-results').style.display = 'block';
-    document.getElementById('your-order').textContent = orderQuantity.toFixed(2);
-    document.getElementById('your-profit').textContent = yourProfit.toFixed(2);
-    document.getElementById('optimal-profit').textContent = optimalProfit.toFixed(2);
-    document.getElementById('profit-diff').textContent = profitDiff.toFixed(2);
-    
-    // Add feedback
-    const profitAlert = document.getElementById('profit-alert');
-    if (profitDiff <= 0) {
-        profitAlert.className = 'alert alert-success';
-        profitAlert.textContent = 'Great job! Your order quantity is performing optimally!';
-    } else if (profitDiff < optimalProfit * 0.05) {
-        profitAlert.className = 'alert alert-info';
-        profitAlert.textContent = 'Close! Your order is within 5% of optimal performance.';
-    } else if (profitDiff < optimalProfit * 0.1) {
-        profitAlert.className = 'alert alert-warning';
-        profitAlert.textContent = 'Your order is within 10% of optimal performance. Keep adjusting!';
-    } else {
-        profitAlert.className = 'alert alert-danger';
-        profitAlert.textContent = 'Your order is far from optimal. Try moving closer to the optimal quantity.';
-    }
-}
+    const data = getFormData();
+    fetch('/api/newsvendor_simulation', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.error) { alert('Error: ' + res.error); return; }
+        document.getElementById('simulation-results').style.display = 'block';
+        document.getElementById('your-order').textContent = data.order_quantity.toFixed(2);
+        document.getElementById('your-profit').textContent = res.your_profit.toFixed(2);
+        document.getElementById('optimal-profit').textContent = res.optimal_profit.toFixed(2);
+        document.getElementById('profit-diff').textContent = res.profit_diff.toFixed(2);
 
-function simulateNewsvendor(periods, orderQuantity, demandMean, demandStd, price, cost, salvage, distribution) {
-    let totalProfit = 0;
-    
-    // Generate pseudo-random number sequence
-    const demands = [];
-    for (let i = 0; i < periods; i++) {
-        let demand;
-        if (distribution === 'Normal') {
-            demand = randomNormal(demandMean, demandStd);
+        // Feedback
+        const profitAlert = document.getElementById('profit-alert');
+        if (res.profit_diff <= 0) {
+            profitAlert.className = 'alert alert-success';
+            profitAlert.textContent = 'Great job! Your order quantity is performing optimally!';
+        } else if (res.profit_diff < res.optimal_profit * 0.05) {
+            profitAlert.className = 'alert alert-info';
+            profitAlert.textContent = 'Close! Your order is within 5% of optimal performance.';
+        } else if (res.profit_diff < res.optimal_profit * 0.1) {
+            profitAlert.className = 'alert alert-warning';
+            profitAlert.textContent = 'Your order is within 10% of optimal performance. Keep adjusting!';
         } else {
-            const a = demandMean - demandStd * Math.sqrt(3);
-            const b = demandMean + demandStd * Math.sqrt(3);
-            demand = randomUniform(a, b);
+            profitAlert.className = 'alert alert-danger';
+            profitAlert.textContent = 'Your order is far from optimal. Try moving closer to the optimal quantity.';
         }
-        demands.push(demand);
-    }
-    
-    // Calculate profit
-    for (const demand of demands) {
-        const sales = Math.min(demand, orderQuantity);
-        const leftover = Math.max(0, orderQuantity - demand);
-        
-        const revenue = sales * price;
-        const salvageRevenue = leftover * salvage;
-        const orderingCost = orderQuantity * cost;
-        
-        const profit = revenue + salvageRevenue - orderingCost;
-        totalProfit += profit;
-    }
-    
-    return totalProfit;
+    });
 }
 
-function updateDistributionChart(mean, std, optimalQ, distribution) {
+function updateDistributionChart(x, y, optimalQ, distribution) {
     const ctx = document.getElementById('distribution-chart').getContext('2d');
-    
-    // Clear previous chart
-    if (distributionChart) {
-        distributionChart.destroy();
-    }
-    
-    // Generate distribution data
-    const dataPoints = 100;
-    let xValues, yValues;
-    let xMin, xMax;
-    
-    if (distribution === 'Normal') {
-        xMin = mean - 4 * std;
-        xMax = mean + 4 * std;
-        xValues = Array.from({length: dataPoints}, (_, i) => xMin + (xMax - xMin) * i / (dataPoints - 1));
-        yValues = xValues.map(x => normalPdf(x, mean, std));
-    } else {
-        const a = mean - std * Math.sqrt(3);
-        const b = mean + std * Math.sqrt(3);
-        xMin = a - (b - a) * 0.1;
-        xMax = b + (b - a) * 0.1;
-        xValues = Array.from({length: dataPoints}, (_, i) => xMin + (xMax - xMin) * i / (dataPoints - 1));
-        yValues = xValues.map(x => (x >= a && x <= b) ? 1 / (b - a) : 0);
-    }
-    
+    if (distributionChart) distributionChart.destroy();
     // Find optimal Q index
-    const optimalIndex = xValues.findIndex(x => x >= optimalQ);
-    
-    // Create left and right datasets
-    const leftX = xValues.slice(0, optimalIndex);
-    const leftY = yValues.slice(0, optimalIndex);
-    const rightX = xValues.slice(optimalIndex);
-    const rightY = yValues.slice(optimalIndex);
-    
-    // Create the chart
+    const optimalIndex = x.findIndex(val => val >= optimalQ);
+    const leftX = x.slice(0, optimalIndex);
+    const leftY = y.slice(0, optimalIndex);
+    const rightX = x.slice(optimalIndex);
+    const rightY = y.slice(optimalIndex);
+
     distributionChart = new Chart(ctx, {
         type: 'line',
         data: {
             datasets: [
                 {
                     label: 'Stockout Risk',
-                    data: leftX.map((x, i) => ({ x, y: leftY[i] })),
+                    data: leftX.map((xv, i) => ({ x: xv, y: leftY[i] })),
                     borderColor: 'rgba(255, 0, 0, 1)',
                     backgroundColor: 'rgba(255, 0, 0, 0.3)',
                     fill: 'origin'
                 },
                 {
                     label: 'Overage Risk',
-                    data: rightX.map((x, i) => ({ x, y: rightY[i] })),
+                    data: rightX.map((xv, i) => ({ x: xv, y: rightY[i] })),
                     borderColor: 'rgba(0, 0, 255, 1)',
                     backgroundColor: 'rgba(0, 0, 255, 0.3)',
                     fill: 'origin'
                 },
                 {
                     label: 'Optimal Q',
-                    data: [{ x: optimalQ, y: 0 }, { x: optimalQ, y: Math.max(...yValues) }],
+                    data: [{ x: optimalQ, y: 0 }, { x: optimalQ, y: Math.max(...y) }],
                     borderColor: 'rgba(0, 128, 0, 1)',
                     borderWidth: 2,
                     borderDash: [5, 5],
@@ -397,97 +298,12 @@ function updateDistributionChart(mean, std, optimalQ, distribution) {
         options: {
             responsive: true,
             scales: {
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Demand'
-                    }
-                },
-                y: {
-                    title: {
-                        display: true,
-                        text: 'Probability Density'
-                    }
-                }
+                x: { title: { display: true, text: 'Demand' } },
+                y: { title: { display: true, text: 'Probability Density' } }
             },
-            plugins: {
-                legend: {
-                    position: 'top'
-                }
-            }
+            plugins: { legend: { position: 'top' } }
         }
     });
-}
-
-// Helper functions
-function normalPdf(x, mean, std) {
-    const variance = std * std;
-    return Math.exp(-Math.pow(x - mean, 2) / (2 * variance)) / (Math.sqrt(2 * Math.PI * variance));
-}
-
-function normInv(p) {
-    // Approximation of the normal inverse CDF
-    if (p <= 0) return -Infinity;
-    if (p >= 1) return Infinity;
-    
-    // Coefficients for the approximation
-    const a1 = -3.969683028665376e+01;
-    const a2 = 2.209460984245205e+02;
-    const a3 = -2.759285104469687e+02;
-    const a4 = 1.383577518672690e+02;
-    const a5 = -3.066479806614716e+01;
-    const a6 = 2.506628277459239e+00;
-    
-    const b1 = -5.447609879822406e+01;
-    const b2 = 1.615858368580409e+02;
-    const b3 = -1.556989798598866e+02;
-    const b4 = 6.680131188771972e+01;
-    const b5 = -1.328068155288572e+01;
-    
-    const c1 = -7.784894002430293e-03;
-    const c2 = -3.223964580411365e-01;
-    const c3 = -2.400758277161838e+00;
-    const c4 = -2.549732539343734e+00;
-    const c5 = 4.374664141464968e+00;
-    const c6 = 2.938163982698783e+00;
-    
-    const d1 = 7.784695709041462e-03;
-    const d2 = 3.224671290700398e-01;
-    const d3 = 2.445134137142996e+00;
-    const d4 = 3.754408661907416e+00;
-    
-    let q, r;
-    if (p < 0.5) {
-        q = p;
-    } else {
-        q = 1 - p;
-    }
-    
-    if (q > 0.02425) {
-        // Central region
-        r = q - 0.5;
-        r = r * r;
-        return (p > 0.5 ? 1 : -1) * (((((a6 * r + a5) * r + a4) * r + a3) * r + a2) * r + a1) /
-                                    (((((b5 * r + b4) * r + b3) * r + b2) * r + b1) * r + 1);
-    } else {
-        // Tail region
-        r = Math.sqrt(-Math.log(q));
-        const result = (((((c6 * r + c5) * r + c4) * r + c3) * r + c2) * r + c1) /
-                       ((((d4 * r + d3) * r + d2) * r + d1) * r + 1);
-        return p > 0.5 ? -result : result;
-    }
-}
-
-function randomNormal(mean, stdDev) {
-    let u = 0, v = 0;
-    while (u === 0) u = Math.random();
-    while (v === 0) v = Math.random();
-    const z = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
-    return mean + z * stdDev;
-}
-
-function randomUniform(min, max) {
-    return min + Math.random() * (max - min);
 }
 </script>
 {% endblock %} 

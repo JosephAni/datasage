@@ -2105,26 +2105,34 @@ def calculate_clv():
 
 @app.route('/api/data/info', methods=['GET'])
 def get_data_info():
-        """Get information about the loaded dataset"""
-        data_manager = DataManager() # Get the singleton
-        print(f"DataManager: Instance ID in get_data_info: {id(data_manager)}")
-        print(f"DataManager: Session in get_data_info: {data_manager._session is not None}")
-        df = data_manager.get_data() # Access the loaded data (DataFrame)
+    """Get information about the loaded dataset"""
+    data_manager = DataManager() # Get the singleton
+    print(f"DataManager: Instance ID in get_data_info: {id(data_manager)}")
+    print(f"DataManager: Session in get_data_info: {data_manager._session is not None}")
+    df = data_manager.get_data() # Access the loaded data (DataFrame)
 
-        if df is None:
-            print("DataManager.data is None in get_data_info")
-            return jsonify({
-                "message": "No dataset loaded.",
-                "status": "error",
-                "data": {}
-            }), 400 # Return a 400 status code for bad request
-        else:
-            data_info = data_manager.get_metadata() # Or a dedicated method to get summary info
-            return jsonify({
-                "message": "Dataset loaded successfully.",
-                "status": "success",
-                "data": data_info
-            }), 200
+    if df is None:
+        print("DataManager.data is None in get_data_info")
+        return jsonify({
+            "message": "No dataset loaded.",
+            "status": "error"
+        }), 400 # Return a 400 status code for bad request
+    else:
+        data_info = data_manager.get_metadata() # Or a dedicated method to get summary info
+        # Reformat to match frontend expectations
+        metadata = {
+            "filename": data_info.get("filename"),
+            "row_count": data_info.get("row_count"),
+            "column_count": data_info.get("column_count"),
+            "last_updated": data_info.get("last_updated")
+        }
+        # Build column_types as {col: dtype}
+        columns = data_info.get("columns", {})
+        column_types = {col: info.get("dtype", "object") for col, info in columns.items()}
+        return jsonify({
+            "metadata": metadata,
+            "column_types": column_types
+        }), 200
 
 
 @app.route('/visualization')
@@ -2886,6 +2894,12 @@ def api_feature_selection():
     if df is None:
         return jsonify({"error": "No data loaded"}), 404
     
+    # --- Add these debug prints ---
+    print("DEBUG: DataFrame columns:", df.columns.tolist())
+    print("DEBUG: DataFrame dtypes:", df.dtypes.to_dict())
+    print("DEBUG: Numeric columns detected:", df.select_dtypes(include=['number']).columns.tolist())
+    # --- End debug prints ---
+
     try:
         # Get request data
         data = request.get_json()
@@ -3805,6 +3819,350 @@ def api_data_eda():
         })
     except Exception as e:
         return jsonify({'error': f'EDA error: {str(e)}'}), 400
+
+@app.route('/price_simulation', methods=['GET'])
+def price_simulation():
+    return render_template('price_simulation.html')
+
+@app.route('/api/price_simulation', methods=['POST'])
+def api_price_simulation():
+    import numpy as np
+    from flask import request, jsonify
+    data = request.get_json()
+    try:
+        base_demand = float(data.get('base_demand', 1000))
+        base_price = float(data.get('base_price', 10))
+        unit_cost = float(data.get('unit_cost', 5))
+        a = float(data.get('a', -2))
+        b = float(data.get('b', 0.5))
+        prices = np.linspace(max(0.01, base_price * 0.1), base_price * 2, 200)
+        demand = base_demand * np.exp(a + b * np.log(prices / base_price))
+        profit = (prices - unit_cost) * demand
+        optimum_idx = int(np.argmax(profit))
+        result = {
+            'prices': prices.tolist(),
+            'demand': demand.tolist(),
+            'profit': profit.tolist(),
+            'optimum': {
+                'price': float(prices[optimum_idx]),
+                'quantity': float(demand[optimum_idx]),
+                'profit': float(profit[optimum_idx]),
+                'elasticity': float(b)
+            }
+        }
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/api/newsvendor_simulation', methods=['POST'])
+def api_newsvendor_simulation():
+    import numpy as np
+    from scipy.stats import norm
+    from flask import request, jsonify
+    data = request.get_json()
+    try:
+        distribution = data.get('distribution', 'Normal')
+        expected_demand = float(data.get('expected_demand', 100))
+        std_dev = float(data.get('std_dev', 10))
+        cost = float(data.get('cost', 5))
+        price = float(data.get('price', 10))
+        salvage_price = float(data.get('salvage_price', 2.5))
+        order_quantity = float(data.get('order_quantity', expected_demand))
+        periods = int(data.get('periods', 100))
+
+        # Critical ratio
+        critical_ratio = (price - cost) / (price - salvage_price)
+        if distribution == 'Normal':
+            z = norm.ppf(critical_ratio)
+            optimal_q = expected_demand + std_dev * z
+        else:
+            a = expected_demand - std_dev * np.sqrt(3)
+            b = expected_demand + std_dev * np.sqrt(3)
+            optimal_q = a + (b - a) * critical_ratio
+
+        # Expected metrics
+        expected_sales = price * expected_demand
+        expected_excess = max(0, optimal_q - expected_demand)
+        salvage_revenue = salvage_price * expected_excess
+        total_cost = cost * optimal_q
+        expected_profit = expected_sales + salvage_revenue - total_cost
+
+        # Simulate profits
+        def simulate(periods, q):
+            total_profit = 0
+            for _ in range(periods):
+                if distribution == 'Normal':
+                    demand = np.random.normal(expected_demand, std_dev)
+                else:
+                    a = expected_demand - std_dev * np.sqrt(3)
+                    b = expected_demand + std_dev * np.sqrt(3)
+                    demand = np.random.uniform(a, b)
+                sales = min(demand, q)
+                leftover = max(0, q - demand)
+                revenue = sales * price
+                salvage_rev = leftover * salvage_price
+                ordering_cost = q * cost
+                profit = revenue + salvage_rev - ordering_cost
+                total_profit += profit
+            return total_profit
+
+        your_profit = simulate(periods, order_quantity)
+        optimal_profit = simulate(periods, optimal_q)
+        profit_diff = optimal_profit - your_profit
+
+        # Distribution data for chart
+        chart_x = np.linspace(expected_demand - 4*std_dev, expected_demand + 4*std_dev, 100)
+        if distribution == 'Normal':
+            chart_y = norm.pdf(chart_x, expected_demand, std_dev)
+        else:
+            a = expected_demand - std_dev * np.sqrt(3)
+            b = expected_demand + std_dev * np.sqrt(3)
+            chart_y = np.where((chart_x >= a) & (chart_x <= b), 1/(b-a), 0)
+
+        return jsonify({
+            'optimal_q': optimal_q,
+            'critical_ratio': critical_ratio,
+            'service_level': critical_ratio * 100,
+            'expected_profit': expected_profit,
+            'expected_sales': expected_sales,
+            'expected_salvage': salvage_revenue,
+            'total_cost': total_cost,
+            'your_profit': your_profit,
+            'optimal_profit': optimal_profit,
+            'profit_diff': profit_diff,
+            'chart_x': chart_x.tolist(),
+            'chart_y': chart_y.tolist()
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/assortment_planning', methods=['GET', 'POST'])
+def assortment_planning():
+    """Render the Assortment Planning Simulation page and handle simulation logic."""
+    # Product type options
+    product_types = {
+        "Food": ["Milk", "Bread", "Cereal", "Yogurt", "Cheese", "Eggs"],
+        "Snacks": ["Regular Snack", "Fancy Snack", "Chips", "Candy", "Chocolate", "Nuts"],
+        "Beverages": ["Water", "Soda", "Juice", "Coffee", "Tea", "Energy Drink"],
+        "Health": ["Vitamins", "Supplements", "First Aid", "Pain Relief"],
+        "Personal Care": ["Shampoo", "Soap", "Toothpaste", "Deodorant", "Lotion"],
+        "Household": ["Cleaning Supplies", "Paper Goods", "Laundry", "Kitchen Items"],
+        "Electronics": ["Laptop", "Phone"],
+        "Furniture": ["Chair", "Table", "Sofa"],
+        "Shoes": ["Sneakers", "Boots", "Sandals"],
+        "Shirts": ["T-Shirt", "Dress Shirt", "Polo"],
+        "Pants": ["Jeans", "Chinos", "Shorts"],
+        "Other": ["Custom 1", "Custom 2", "Custom 3"]  # TODO: Allow user to overwrite/add custom products from the UI
+    }
+    all_products = [prod for prods in product_types.values() for prod in prods]
+
+    # Default form data
+    default_form = {
+        'p1_type': 'Milk', 'p2_type': 'Regular Snack', 'p3_type': 'Fancy Snack',
+        'p1_space': 10, 'p2_space': 10, 'p3_space': 30,
+        'p1_base_demand': 4000, 'p2_base_demand': 2500, 'p3_base_demand': 2000,
+        'p1_margin': 2.0, 'p2_margin': 3.0, 'p3_margin': 6.0,
+        'p1_p1': 0.2, 'p1_p2': 0.2, 'p1_p3': 0.1,
+        'p2_p1': 0.2, 'p2_p2': 0.3, 'p2_p3': -0.2,
+        'p3_p1': 0.1, 'p3_p2': -0.2, 'p3_p3': 0.4,
+        'focus_product': 'p1', 'locked_product': 'p2', 'min_space': 5
+    }
+    form_data = default_form.copy()
+    results = None
+
+    if request.method == 'POST':
+        # Get form data
+        int_fields = ['p1_space', 'p2_space', 'p3_space', 'p1_base_demand', 'p2_base_demand', 'p3_base_demand', 'min_space']
+        float_fields = ['p1_margin', 'p2_margin', 'p3_margin',
+                        'p1_p1', 'p1_p2', 'p1_p3',
+                        'p2_p1', 'p2_p2', 'p2_p3',
+                        'p3_p1', 'p3_p2', 'p3_p3']
+        for key in form_data:
+            val = request.form.get(key, form_data[key])
+            if key in int_fields:
+                form_data[key] = int(val)
+            elif key in float_fields:
+                form_data[key] = float(val)
+            else:
+                form_data[key] = val
+
+        # Prepare arrays for calculation
+        space_allocation = np.array([
+            form_data['p1_space'],
+            form_data['p2_space'],
+            form_data['p3_space']
+        ])
+        base_demand = np.array([
+            form_data['p1_base_demand'],
+            form_data['p2_base_demand'],
+            form_data['p3_base_demand']
+        ])
+        margins = np.array([
+            form_data['p1_margin'],
+            form_data['p2_margin'],
+            form_data['p3_margin']
+        ])
+        cross_effects = np.array([
+            [form_data['p1_p1'], form_data['p1_p2'], form_data['p1_p3']],
+            [form_data['p2_p1'], form_data['p2_p2'], form_data['p2_p3']],
+            [form_data['p3_p1'], form_data['p3_p2'], form_data['p3_p3']]
+        ])
+        product_names = {
+            'p1': form_data['p1_type'],
+            'p2': form_data['p2_type'],
+            'p3': form_data['p3_type']
+        }
+        focus_product = form_data['focus_product']
+        locked_product = form_data['locked_product']
+        min_space = form_data['min_space']
+        focus_idx = int(focus_product[-1]) - 1
+        locked_idx = int(locked_product[-1]) - 1
+        other_idx = list({0, 1, 2} - {focus_idx, locked_idx})[0]
+        other_product = f'p{other_idx+1}'
+
+        def calculate_sales_and_profit(space_allocation, base_demand, cross_space_effects, margins):
+            n_products = len(space_allocation)
+            sales = np.zeros(n_products)
+            for i in range(n_products):
+                sales[i] = base_demand[i]
+                for j in range(n_products):
+                    sales[i] *= (1 + cross_space_effects[i][j] * space_allocation[j])
+            profits = sales * margins
+            return sales, profits
+
+        # Calculate initial sales and profit
+        sales, profits = calculate_sales_and_profit(space_allocation, base_demand, cross_effects, margins)
+        original_profit = profits.sum()
+
+        # Simulate profit curve for focus product
+        space_range = np.linspace(min_space, 50 - min_space, 50)
+        profit_data = []
+        for space in space_range:
+            temp_allocation = space_allocation.copy()
+            temp_allocation[focus_idx] = space
+            remaining_space = 50 - space - temp_allocation[locked_idx]
+            if remaining_space >= min_space:
+                temp_allocation[other_idx] = remaining_space
+                _, temp_profits = calculate_sales_and_profit(temp_allocation, base_demand, cross_effects, margins)
+                profit_data.append({
+                    'space': space,
+                    'total_profit': temp_profits.sum(),
+                    'p1_profit': temp_profits[0],
+                    'p2_profit': temp_profits[1],
+                    'p3_profit': temp_profits[2]
+                })
+        df = pd.DataFrame(profit_data)
+        max_profit_idx = df['total_profit'].idxmax()
+        max_profit_space = df['space'].iloc[max_profit_idx]
+        max_profit = df['total_profit'].iloc[max_profit_idx]
+
+        # Calculate optimal allocation
+        optimal_space_allocation = space_allocation.copy()
+        optimal_space_allocation[focus_idx] = max_profit_space
+        optimal_space_allocation[other_idx] = 50 - max_profit_space - optimal_space_allocation[locked_idx]
+        optimal_sales, optimal_profits = calculate_sales_and_profit(optimal_space_allocation, base_demand, cross_effects, margins)
+
+        # Insights and recommendations
+        profit_per_space = np.divide(optimal_profits, optimal_space_allocation, out=np.zeros_like(optimal_profits), where=optimal_space_allocation!=0)
+        highest_profit_idx = np.argmax(optimal_profits)
+        highest_efficiency_idx = np.argmax(profit_per_space)
+        highest_profit_product = f'p{highest_profit_idx+1}'
+        highest_efficiency_product = f'p{highest_efficiency_idx+1}'
+        profit_improvement = optimal_profits.sum() - original_profit
+        profit_improvement_pct = (profit_improvement / original_profit) * 100 if original_profit > 0 else 0
+        # Cross-effects
+        positive_effects = []
+        negative_effects = []
+        for i in range(3):
+            for j in range(3):
+                if i != j:
+                    effect = cross_effects[i, j]
+                    source = f"p{i+1}"
+                    target = f"p{j+1}"
+                    if effect > 0:
+                        positive_effects.append((source, target, effect))
+                    else:
+                        negative_effects.append((source, target, effect))
+        positive_effects.sort(key=lambda x: x[2], reverse=True)
+        negative_effects.sort(key=lambda x: x[2])
+        # Recommendations
+        recommendations = [
+            f"Allocate {max_profit_space:.1f} units of space to {product_names[focus_product]} to maximize total profit."
+        ]
+        if highest_efficiency_product != focus_product:
+            recommendations.append(
+                f"Consider increasing space for {product_names[highest_efficiency_product]} which has the highest profit per unit space (${profit_per_space[highest_efficiency_idx]:.2f}/unit)."
+            )
+        if positive_effects:
+            source, target, effect = positive_effects[0]
+            recommendations.append(
+                f"Leverage the positive effect of {product_names[source]} on {product_names[target]} ({effect:.3f}) by placing these products near each other."
+            )
+        if negative_effects:
+            source, target, effect = negative_effects[0]
+            recommendations.append(
+                f"Be careful with {product_names[source]} and {product_names[target]} placement as they have a negative interaction ({effect:.3f})."
+            )
+        # Prepare results for template
+        results = {
+            'optimal_total_profit': int(optimal_profits.sum()),
+            'profit_improvement': int(profit_improvement),
+            'improvement_pct': profit_improvement_pct,
+            'optimal_allocation': [
+                {
+                    'product': f"p1 ({product_names['p1']})",
+                    'current_space': space_allocation[0],
+                    'optimal_space': optimal_space_allocation[0],
+                    'space_change': optimal_space_allocation[0] - space_allocation[0],
+                    'optimal_profit': int(optimal_profits[0])
+                },
+                {
+                    'product': f"p2 ({product_names['p2']})",
+                    'current_space': space_allocation[1],
+                    'optimal_space': optimal_space_allocation[1],
+                    'space_change': optimal_space_allocation[1] - space_allocation[1],
+                    'optimal_profit': int(optimal_profits[1])
+                },
+                {
+                    'product': f"p3 ({product_names['p3']})",
+                    'current_space': space_allocation[2],
+                    'optimal_space': optimal_space_allocation[2],
+                    'space_change': optimal_space_allocation[2] - space_allocation[2],
+                    'optimal_profit': int(optimal_profits[2])
+                },
+                {
+                    'product': 'Total',
+                    'current_space': space_allocation.sum(),
+                    'optimal_space': optimal_space_allocation.sum(),
+                    'space_change': 0,
+                    'optimal_profit': int(optimal_profits.sum())
+                }
+            ],
+            'highest_profit': {
+                'product': highest_profit_product,
+                'product_name': product_names[highest_profit_product],
+                'profit': int(optimal_profits[highest_profit_idx]),
+                'space': optimal_space_allocation[highest_profit_idx]
+            },
+            'highest_efficiency': {
+                'product': highest_efficiency_product,
+                'product_name': product_names[highest_efficiency_product],
+                'profit_per_space': profit_per_space[highest_efficiency_idx],
+                'space': optimal_space_allocation[highest_efficiency_idx]
+            },
+            'strongest_positive': {
+                'source_name': product_names[positive_effects[0][0]] if positive_effects else '',
+                'target_name': product_names[positive_effects[0][1]] if positive_effects else '',
+                'effect': positive_effects[0][2] if positive_effects else 0
+            },
+            'strongest_negative': {
+                'source_name': product_names[negative_effects[0][0]] if negative_effects else '',
+                'target_name': product_names[negative_effects[0][1]] if negative_effects else '',
+                'effect': negative_effects[0][2] if negative_effects else 0
+            },
+            'recommendations': recommendations
+        }
+    return render_template('assortment_planning.html', all_products=all_products, form_data=form_data, results=results)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 

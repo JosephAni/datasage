@@ -1,0 +1,221 @@
+{% extends 'base.html' %}
+{% block title %}Price Simulation{% endblock %}
+{% block content %}
+<div class="container-fluid mt-4">
+  <h1 class="main-header mb-4">Price Simulation 💲</h1>
+  <div class="row">
+    <div class="col-md-3">
+      <div class="card mb-4">
+        <div class="card-header bg-dark text-white">
+          <h5>Price Simulation Inputs</h5>
+        </div>
+        <div class="card-body">
+          <form id="price-sim-form">
+            <div class="mb-3">
+              <label for="base-demand" class="form-label">Base Demand</label>
+              <input type="number" class="form-control" id="base-demand" value="735" step="any">
+            </div>
+            <div class="mb-3">
+              <label for="base-price" class="form-label">Base Price</label>
+              <input type="number" class="form-control" id="base-price" value="5" step="any">
+            </div>
+            <div class="mb-3">
+              <label for="unit-cost" class="form-label">Unit Cost</label>
+              <input type="number" class="form-control" id="unit-cost" value="1.5" step="any">
+            </div>
+            <div class="mb-3">
+              <label for="a-param" class="form-label">a param</label>
+              <input type="number" class="form-control" id="a-param" value="-4" step="any">
+            </div>
+            <div class="mb-3">
+              <label for="b-param" class="form-label">b param</label>
+              <input type="number" class="form-control" id="b-param" value="0.6" step="any">
+            </div>
+            <div class="d-grid">
+              <button type="submit" class="btn btn-primary">Run Simulation</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-9">
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5>Demand & Profit vs. Price</h5>
+        </div>
+        <div class="card-body">
+          <canvas id="price-sim-chart" height="80"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h5>Simulation Results</h5>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-bordered text-center align-middle">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Optimum</th>
+                  <th>Clicked</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Price</td>
+                  <td id="opt-price">-</td>
+                  <td id="clicked-price">-</td>
+                </tr>
+                <tr>
+                  <td>Quantity</td>
+                  <td id="opt-qty">-</td>
+                  <td id="clicked-qty">-</td>
+                </tr>
+                <tr>
+                  <td>Profit</td>
+                  <td id="opt-profit">-</td>
+                  <td id="clicked-profit">-</td>
+                </tr>
+                <tr>
+                  <td>Elasticity</td>
+                  <td id="opt-elasticity">-</td>
+                  <td id="clicked-elasticity">-</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+let chart;
+let simData;
+function updateResults(opt, clicked) {
+  document.getElementById('opt-price').textContent = opt ? `$${opt.price.toFixed(2)}` : '-';
+  document.getElementById('opt-qty').textContent = opt ? Math.round(opt.quantity) : '-';
+  document.getElementById('opt-profit').textContent = opt ? `$${opt.profit.toLocaleString(undefined, {maximumFractionDigits:2})}` : '-';
+  document.getElementById('opt-elasticity').textContent = opt ? opt.elasticity.toFixed(2) : '-';
+  document.getElementById('clicked-price').textContent = clicked ? `$${clicked.price.toFixed(2)}` : '-';
+  document.getElementById('clicked-qty').textContent = clicked ? Math.round(clicked.quantity) : '-';
+  document.getElementById('clicked-profit').textContent = clicked ? `$${clicked.profit.toLocaleString(undefined, {maximumFractionDigits:2})}` : '-';
+  document.getElementById('clicked-elasticity').textContent = clicked ? clicked.elasticity.toFixed(2) : '-';
+}
+function runSimulation(e) {
+  if (e) e.preventDefault();
+  const base_demand = parseFloat(document.getElementById('base-demand').value);
+  const base_price = parseFloat(document.getElementById('base-price').value);
+  const unit_cost = parseFloat(document.getElementById('unit-cost').value);
+  const a = parseFloat(document.getElementById('a-param').value);
+  const b = parseFloat(document.getElementById('b-param').value);
+  fetch('/api/price_simulation', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({base_demand, base_price, unit_cost, a, b})
+  })
+  .then(r => r.json())
+  .then(data => {
+    simData = data;
+    if (data.error) {
+      alert('Simulation error: ' + data.error);
+      return;
+    }
+    const prices = data.prices;
+    const demand = data.demand;
+    const profit = data.profit;
+    const optimum = data.optimum;
+    // Chart
+    if (chart) chart.destroy();
+    const ctx = document.getElementById('price-sim-chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: prices,
+        datasets: [
+          {
+            label: 'Demand',
+            data: demand,
+            yAxisID: 'y',
+            borderColor: 'rgba(52, 152, 219, 1)',
+            backgroundColor: 'rgba(52, 152, 219, 0.2)',
+            pointRadius: 2,
+            fill: false,
+            tension: 0.1
+          },
+          {
+            label: 'Profit',
+            data: profit,
+            yAxisID: 'y1',
+            borderColor: 'rgba(231, 76, 60, 1)',
+            backgroundColor: 'rgba(231, 76, 60, 0.2)',
+            pointRadius: 0,
+            fill: false,
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false
+        },
+        plugins: {
+          legend: {display: true},
+          tooltip: {
+            callbacks: {
+              label: function(context) {
+                if (context.dataset.label === 'Demand') {
+                  return `Demand: ${Math.round(context.parsed.y)}`;
+                } else if (context.dataset.label === 'Profit') {
+                  return `Profit: $${context.parsed.y.toLocaleString(undefined, {maximumFractionDigits:2})}`;
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            title: {display: true, text: 'Price'},
+            ticks: {callback: v => `$${v}`}
+          },
+          y: {
+            type: 'linear',
+            display: true,
+            position: 'left',
+            title: {display: true, text: 'Demand'},
+            beginAtZero: true
+          },
+          y1: {
+            type: 'linear',
+            display: true,
+            position: 'right',
+            title: {display: true, text: 'Profit'},
+            grid: {drawOnChartArea: false},
+            beginAtZero: false
+          }
+        },
+        onClick: (evt, elements) => {
+          if (!elements.length) return;
+          const idx = elements[0].index;
+          const clicked = {
+            price: simData.prices[idx],
+            quantity: simData.demand[idx],
+            profit: simData.profit[idx],
+            elasticity: simData.optimum.elasticity
+          };
+          updateResults(simData.optimum, clicked);
+        }
+      }
+    });
+    updateResults(optimum, null);
+  });
+}
+document.getElementById('price-sim-form').addEventListener('submit', runSimulation);
+window.addEventListener('DOMContentLoaded', runSimulation);
+</script>
+{% endblock %} 
