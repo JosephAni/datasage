@@ -31,30 +31,64 @@ A Flask-based web application for inventory management and optimization, featuri
 ## Installation
 
 1. Clone the repository:
+
 ```bash
 git clone https://github.com/JosephAni/inventory-optimization.git
 cd inventory-optimization
 ```
 
-2. Create and activate a virtual environment:
+1. Create and activate a virtual environment:
+
 ```bash
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  
 ```
 
-3. Install dependencies:
+> **Note:**
+>
+> - Always activate the virtual environment with `source venv/bin/activate` before running the app or installing packages.
+> - Install all requirements inside the venv:
+>
+>   ```bash
+>   pip install -r requirements.txt
+>   ```
+>
+> - If you use an IDE, set the Python interpreter to `venv/bin/python` for this project.
+
+---
+
+### Optional: Use a run.sh Script for Convenience
+
+You can create a `run.sh` script to automatically activate the venv and run the app:
+
 ```bash
-pip install -r requirements.txt
+#!/bin/bash
+source venv/bin/activate
+python app.py
 ```
 
-4. Create a `.env` file with the following variables:
+Make it executable:
+
+```bash
+chmod +x run.sh
 ```
+
+Then run your app with:
+
+```bash
+./run.sh
+```
+
+1. Create a `.env` file with the following variables:
+
+```env
 SECRET_KEY=your-secret-key-here
 DATABASE_URL=sqlite:///inventory.db
 DEBUG=True
 ```
 
-5. Run the application:
+1. Run the application:
+
 ```bash
 python app.py
 ```
@@ -63,7 +97,7 @@ The application will be available at `http://localhost:8080`
 
 ## Project Structure
 
-```
+```plaintext
 inventory-optimization/
 ├── app.py                 # Main application file
 ├── requirements.txt       # Python dependencies

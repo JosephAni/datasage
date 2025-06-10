@@ -72,6 +72,7 @@
                         <label for="feature-method" class="form-label">Feature selection method</label>
                         <select class="form-select" id="feature-method">
                             <option value="correlation">Correlation</option>
+                            <option value="variance">Variance</option>
                             <option value="random_forest">Random Forest</option>
                             <option value="mutual_info">Mutual Information</option>
                         </select>
@@ -140,26 +141,31 @@
 
 <script>
 $(document).ready(function() {
-    // Load data preview
+    let allColumns = [];
+    let numericColumns = [];
+    let dtypes = {};
+
     function loadDataPreview() {
         $.get('/api/data/preview', function(data) {
             if (data.error) {
-                $('#data-preview').html(`<div class="alert alert-warning">${data.error}</div>`);
+                $('#data-preview').html(`<div class=\"alert alert-warning\">${data.error}</div>`);
                 return;
             }
-            
+            allColumns = data.columns || [];
+            dtypes = data.dtypes || {};
+            // Case-insensitive and robust numeric detection
+            numericColumns = allColumns.filter(col => dtypes[col] && /int|float/i.test(dtypes[col]));
             const preview = data.data.slice(0, 5);
-            const columns = data.columns;
             
             let table = '<table class="table table-striped table-bordered"><thead><tr>';
-            columns.forEach(col => {
+            allColumns.forEach(col => {
                 table += `<th>${col}</th>`;
             });
             table += '</tr></thead><tbody>';
             
             preview.forEach(row => {
                 table += '<tr>';
-                columns.forEach(col => {
+                allColumns.forEach(col => {
                     table += `<td>${row[col]}</td>`;
                 });
                 table += '</tr>';
@@ -168,32 +174,27 @@ $(document).ready(function() {
             table += '</tbody></table>';
             $('#data-preview').html(table);
             
-            // Populate column selectors
-            populateColumnSelectors(columns);
+            populateColumnSelectors(allColumns);
+            updateTargetColumnOptions($('#feature-method').val());
         });
     }
     
-    // Populate column selectors
     function populateColumnSelectors(columns) {
-        // Target column
         $('#target-column').empty();
         columns.forEach(col => {
             $('#target-column').append(`<option value="${col}">${col}</option>`);
         });
         
-        // Clustering features
         $('#clustering-features').empty();
         columns.forEach(col => {
             $('#clustering-features').append(`<option value="${col}">${col}</option>`);
         });
     }
     
-    // Handle number of features slider
     $('#n-features').on('input', function() {
         $('#n-features-value').text($(this).val());
     });
     
-    // Handle EDA button click
     $('#run-eda').click(function() {
         $.get('/api/data/eda', function(data) {
             if (data.error) {
@@ -256,16 +257,26 @@ $(document).ready(function() {
             }
             
             if (data.categorical_summary) {
+                const cols = Object.keys(data.categorical_summary);
                 content += `
                     <div class="row mt-4">
                         <div class="col-md-12">
                             <h6>Categorical Columns Summary</h6>
-                            ${Object.keys(data.categorical_summary).map(col => `
-                                <div class="mb-4">
-                                    <h6>${col}</h6>
-                                    <div id="cat-chart-${col}"></div>
-                                </div>
-                            `).join('')}
+                            <div class="row">
+                                ${cols.map(col => `
+                                    <div class="col-md-4 mb-4">
+                                        <h6>${col}</h6>
+                                        <table class="table table-sm table-bordered w-auto mx-auto">
+                                            <thead><tr><th>Category</th><th>Count</th></tr></thead>
+                                            <tbody>
+                                                ${data.categorical_summary[col].labels.map((label, i) => `
+                                                    <tr><td>${label}</td><td>${data.categorical_summary[col].values[i]}</td></tr>
+                                                `).join('')}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                `).join('')}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -273,7 +284,6 @@ $(document).ready(function() {
             
             $('#eda-results').html(content);
             
-            // Create charts
             if (data.dtype_counts) {
                 const ctx = document.createElement('canvas');
                 $('#dtype-chart').append(ctx);
@@ -360,12 +370,11 @@ $(document).ready(function() {
         });
     });
     
-    // Handle feature selection form submission
     $('#feature-selection-form').submit(function(e) {
         e.preventDefault();
         
         const formData = {
-            target_column: $('#target-column').val(),
+            target: $('#target-column').val(),
             method: $('#feature-method').val(),
             n_features: parseInt($('#n-features').val())
         };
@@ -415,7 +424,6 @@ $(document).ready(function() {
                 
                 $('#feature-selection-results').html(content);
                 
-                // Create feature importance chart
                 const ctx = document.createElement('canvas');
                 $('#feature-importance-chart').append(ctx);
                 
@@ -445,7 +453,6 @@ $(document).ready(function() {
         });
     });
     
-    // Handle clustering form submission
     $('#clustering-form').submit(function(e) {
         e.preventDefault();
         
@@ -502,7 +509,6 @@ $(document).ready(function() {
                 
                 $('#clustering-results').html(content);
                 
-                // Create clustering chart
                 const ctx = document.createElement('canvas');
                 $('#clustering-chart').append(ctx);
                 
@@ -540,7 +546,38 @@ $(document).ready(function() {
         });
     });
     
-    // Initial load
+    function updateTargetColumnOptions(method) {
+        let options = [];
+        let warning = '';
+        if (method === 'correlation' || method === 'variance') {
+            options = numericColumns;
+            if (options.length === 0) {
+                // Fallback: show all columns with a warning
+                options = allColumns;
+                warning = '<div class="alert alert-warning mt-2">No numeric columns detected. Showing all columns.</div>';
+            }
+        } else {
+            options = allColumns;
+        }
+        $('#target-column').empty();
+        if (options.length === 0) {
+            $('#target-column').html('<option disabled>No columns available</option>');
+        } else {
+            options.forEach(col => {
+                $('#target-column').append(`<option value=\"${col}\">${col}</option>`);
+            });
+        }
+        if (warning) {
+            $('#target-column').after(warning);
+        } else {
+            $('#target-column').next('.alert-warning').remove();
+        }
+    }
+
+    $('#feature-method').on('change', function() {
+        updateTargetColumnOptions($(this).val());
+    });
+    
     loadDataPreview();
 });
 </script>

@@ -2781,6 +2781,67 @@ def api_feature_selection():
                 "top_variance_features": top_features.to_dict()
             })
         
+        elif method == 'random_forest':
+            # Use RandomForest for feature importance
+            from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+            from sklearn.preprocessing import LabelEncoder
+            # Only use numeric columns for features
+            feature_cols = [col for col in df.select_dtypes(include=['number']).columns if col != target]
+            if not target:
+                return jsonify({"error": "Target column required for random_forest method"}), 400
+            if target not in df.columns:
+                return jsonify({"error": f"Target column {target} not found"}), 400
+            X = df[feature_cols].fillna(0)
+            y = df[target]
+            # Determine if classification or regression
+            if y.dtype == 'object' or y.dtype.name == 'category':
+                y = LabelEncoder().fit_transform(y.astype(str))
+                model = RandomForestClassifier(n_estimators=100, random_state=42)
+            else:
+                model = RandomForestRegressor(n_estimators=100, random_state=42)
+            try:
+                model.fit(X, y)
+                importances = model.feature_importances_
+                sorted_idx = importances.argsort()[::-1]
+                features = [feature_cols[i] for i in sorted_idx[:n_features]]
+                scores = [float(importances[i]) for i in sorted_idx[:n_features]]
+                return jsonify({
+                    "features": [{"name": f, "score": s} for f, s in zip(features, scores)],
+                    "method": "random_forest",
+                    "n_features": n_features
+                })
+            except Exception as e:
+                return jsonify({"error": f"Random forest error: {str(e)}"}), 400
+        
+        elif method == 'mutual_info':
+            # Use mutual information for feature selection
+            from sklearn.feature_selection import mutual_info_regression, mutual_info_classif
+            from sklearn.preprocessing import LabelEncoder
+            feature_cols = [col for col in df.select_dtypes(include=['number']).columns if col != target]
+            if not target:
+                return jsonify({"error": "Target column required for mutual_info method"}), 400
+            if target not in df.columns:
+                return jsonify({"error": f"Target column {target} not found"}), 400
+            X = df[feature_cols].fillna(0)
+            y = df[target]
+            # Determine if classification or regression
+            try:
+                if y.dtype == 'object' or y.dtype.name == 'category':
+                    y = LabelEncoder().fit_transform(y.astype(str))
+                    scores = mutual_info_classif(X, y, random_state=42)
+                else:
+                    scores = mutual_info_regression(X, y, random_state=42)
+                sorted_idx = scores.argsort()[::-1]
+                features = [feature_cols[i] for i in sorted_idx[:n_features]]
+                top_scores = [float(scores[i]) for i in sorted_idx[:n_features]]
+                return jsonify({
+                    "features": [{"name": f, "score": s} for f, s in zip(features, top_scores)],
+                    "method": "mutual_info",
+                    "n_features": n_features
+                })
+            except Exception as e:
+                return jsonify({"error": f"Mutual information error: {str(e)}"}), 400
+        
         else:
             return jsonify({"error": f"Unsupported method: {method}"}), 400
     
@@ -3439,56 +3500,153 @@ def api_distribution(column):
 
 @app.route('/api/data/hypothesis-test', methods=['POST'])
 def api_hypothesis_test():
-    df = get_session_data()
-    if df is None:
-        return jsonify({"error": "No data loaded"})
-    data = request.get_json()
-    column = data.get('column')
-    test_type = data.get('test_type')
-    if not column or column not in df.columns:
-        return jsonify({"error": "Invalid or missing column"})
-    if not test_type:
-        return jsonify({"error": "Test type required"})
-    import scipy.stats as stats
-    result = {}
-    if test_type == 'ttest':
-        stat, p = stats.ttest_1samp(df[column].dropna(), 0)
-        interpretation = 'Likely different from 0' if p < 0.05 else 'Not significantly different from 0'
-        result = {
-            'test_name': 'One-sample T-Test',
-            'statistic': stat,
-            'p_value': p,
-            'interpretation': interpretation
-        }
-    elif test_type == 'anova':
-        if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
-            return jsonify({'error': 'ANOVA requires a categorical column'}), 400
-        groups = [df[df[column] == val].dropna().select_dtypes(include=['number']).values.flatten() for val in df[column].dropna().unique()]
-        if len(groups) < 2:
-            return jsonify({'error': 'Not enough groups for ANOVA'}), 400
-        stat, p = stats.f_oneway(*groups)
-        interpretation = 'At least one group mean is different' if p < 0.05 else 'No significant difference between group means'
-        result = {
-            'test_name': 'ANOVA',
-            'statistic': stat,
-            'p_value': p,
-            'interpretation': interpretation
-        }
-    elif test_type == 'chi2':
-        if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
-            return jsonify({'error': 'Chi-square requires a categorical column'}), 400
-        observed = df[column].value_counts().values
-        stat, p = stats.chisquare(observed)
-        interpretation = 'Distribution is not uniform' if p < 0.05 else 'No significant deviation from uniform distribution'
-        result = {
-            'test_name': 'Chi-Square',
-            'statistic': stat,
-            'p_value': p,
-            'interpretation': interpretation
-        }
-    else:
-        return jsonify({'error': 'Unsupported test type'}), 400
-    return jsonify(result)
+    import logging
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("hypothesis-test")
+
+    try:
+        df = get_session_data()
+        if df is None:
+            logger.error("No data loaded in session.")
+            return jsonify({"error": "No data loaded"}), 400
+
+        data = request.get_json()
+        logger.info(f"Received hypothesis test request: {data}")
+        column = data.get('column')
+        test_type = data.get('test_type')
+
+        if not column or column not in df.columns:
+            logger.error(f"Invalid or missing column: {column}")
+            return jsonify({"error": "Invalid or missing column"}), 400
+        if not test_type:
+            logger.error("Test type required but not provided.")
+            return jsonify({"error": "Test type required"}), 400
+
+        import scipy.stats as stats
+        result = {}
+
+        if test_type == 'ttest':
+            try:
+                stat, p = stats.ttest_1samp(df[column].dropna(), 0)
+                interpretation = 'Likely different from 0' if p < 0.05 else 'Not significantly different from 0'
+                result = {
+                    'test_name': 'One-sample T-Test',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"T-Test error: {str(e)}")
+                return jsonify({'error': f'T-Test error: {str(e)}'}), 400
+
+        elif test_type == 'anova':
+            if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+                logger.error(f"ANOVA requires a categorical column. Got: {column} ({df[column].dtype})")
+                return jsonify({'error': 'ANOVA requires a categorical column'}), 400
+            try:
+                groups = [df[df[column] == val].dropna().select_dtypes(include=['number']).values.flatten() for val in df[column].dropna().unique()]
+                # Only keep groups with at least 2 values and nonzero variance
+                valid_groups = [g for g in groups if len(g) > 1 and np.var(g) > 0]
+                if len(valid_groups) < 2:
+                    logger.error("Not enough data or variance in groups to perform ANOVA.")
+                    return jsonify({'error': 'Not enough data or variance in groups to perform ANOVA.'}), 400
+                stat, p = stats.f_oneway(*valid_groups)
+                interpretation = 'At least one group mean is different' if p < 0.05 else 'No significant difference between group means'
+                result = {
+                    'test_name': 'ANOVA',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"ANOVA error: {str(e)}")
+                return jsonify({'error': f'ANOVA error: {str(e)}'}), 400
+
+        elif test_type == 'chi2':
+            if not pd.api.types.is_categorical_dtype(df[column]) and not pd.api.types.is_object_dtype(df[column]):
+                logger.error(f"Chi-square requires a categorical column. Got: {column} ({df[column].dtype})")
+                return jsonify({'error': 'Chi-square requires a categorical column'}), 400
+            try:
+                observed = df[column].value_counts().values
+                stat, p = stats.chisquare(observed)
+                # Check for NaN results
+                if np.isnan(stat) or np.isnan(p):
+                    logger.error("Not enough data or variance to perform Chi-square test.")
+                    return jsonify({'error': 'Not enough data or variance to perform Chi-square test.'}), 400
+                interpretation = 'Distribution is not uniform' if p < 0.05 else 'No significant deviation from uniform distribution'
+                result = {
+                    'test_name': 'Chi-Square',
+                    'statistic': stat,
+                    'p_value': p,
+                    'interpretation': interpretation
+                }
+            except Exception as e:
+                logger.error(f"Chi-square error: {str(e)}")
+                return jsonify({'error': f'Chi-square error: {str(e)}'}), 400
+
+        else:
+            logger.error(f"Unsupported test type: {test_type}")
+            return jsonify({'error': 'Unsupported test type'}), 400
+
+        logger.info(f"Hypothesis test result: {result}")
+        return jsonify(result)
+
+    except Exception as e:
+        logger.error(f"Unexpected error in hypothesis test: {str(e)}")
+        return jsonify({'error': f'Unexpected error: {str(e)}'}), 400
+
+@app.route('/api/data/eda', methods=['GET'])
+def api_data_eda():
+    """Return basic EDA (Exploratory Data Analysis) results for the dataset."""
+    try:
+        df = get_session_data()
+        if df is None:
+            return jsonify({'error': 'No data loaded'}), 400
+
+        # Shape
+        shape = {'rows': int(df.shape[0]), 'cols': int(df.shape[1])}
+
+        # Memory usage (in MB)
+        memory_usage = float(df.memory_usage(deep=True).sum() / (1024 ** 2))
+
+        # Data type counts
+        dtype_counts = {str(k): int(v) for k, v in df.dtypes.value_counts().items()}
+
+        # Numeric summary
+        numeric_cols = df.select_dtypes(include=['number']).columns
+        numeric_summary = None
+        if len(numeric_cols) > 0:
+            numeric_summary = df[numeric_cols].describe().to_dict()
+
+        # Correlation matrix
+        correlation_matrix = None
+        correlation_columns = None
+        if len(numeric_cols) > 1:
+            corr = df[numeric_cols].corr().round(3)
+            correlation_matrix = corr.values.tolist()
+            correlation_columns = corr.columns.tolist()
+
+        # Categorical summary
+        categorical_cols = df.select_dtypes(include=['object', 'category']).columns
+        categorical_summary = {}
+        for col in categorical_cols:
+            value_counts = df[col].value_counts().head(10)
+            categorical_summary[col] = {
+                'labels': value_counts.index.astype(str).tolist(),
+                'values': value_counts.values.tolist()
+            }
+
+        return jsonify({
+            'shape': shape,
+            'memory_usage': memory_usage,
+            'dtype_counts': dtype_counts,
+            'numeric_summary': numeric_summary,
+            'correlation_matrix': correlation_matrix,
+            'correlation_columns': correlation_columns,
+            'categorical_summary': categorical_summary
+        })
+    except Exception as e:
+        return jsonify({'error': f'EDA error: {str(e)}'}), 400
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8080) 

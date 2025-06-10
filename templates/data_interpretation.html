@@ -146,6 +146,46 @@
 
 <script>
 $(document).ready(function() {
+    // Store column types for filtering
+    let columnTypes = {};
+    let allColumns = [];
+
+    // Fetch column types on load
+    $.get('/api/data/dtypes', function(dtypes) {
+        columnTypes = dtypes;
+        allColumns = Object.keys(dtypes);
+        // Populate selectors initially for t-test (default)
+        updateTestColumnOptions('ttest');
+    });
+
+    // Update column dropdown based on test type
+    $('#test-type').on('change', function() {
+        const testType = $(this).val();
+        updateTestColumnOptions(testType);
+    });
+
+    function updateTestColumnOptions(testType) {
+        const $testColumn = $('#test-column');
+        $testColumn.empty();
+        let filteredCols = [];
+        if (testType === 'ttest') {
+            // Numeric columns only
+            filteredCols = allColumns.filter(col => columnTypes[col] && (columnTypes[col].toLowerCase().includes('int') || columnTypes[col].toLowerCase().includes('float') || columnTypes[col].toLowerCase().includes('double')));
+        } else if (testType === 'anova' || testType === 'chi2') {
+            // Categorical columns only
+            filteredCols = allColumns.filter(col => columnTypes[col] && (columnTypes[col].toLowerCase().includes('object') || columnTypes[col].toLowerCase().includes('category')));
+        } else {
+            filteredCols = allColumns;
+        }
+        if (filteredCols.length === 0) {
+            $testColumn.append('<option value="">No valid columns available</option>');
+        } else {
+            filteredCols.forEach(col => {
+                $testColumn.append(`<option value="${col}">${col}</option>`);
+            });
+        }
+    }
+
     // Load data preview
     function loadDataPreview() {
         $.get('/api/data/preview', function(data) {
@@ -502,12 +542,10 @@ $(document).ready(function() {
     // Handle hypothesis testing form submission
     $('#hypothesis-form').submit(function(e) {
         e.preventDefault();
-        
         const formData = {
             column: $('#test-column').val(),
             test_type: $('#test-type').val()
         };
-        
         $.ajax({
             url: '/api/data/hypothesis-test',
             method: 'POST',
@@ -518,7 +556,14 @@ $(document).ready(function() {
                     $('#test-results').html(`<div class="alert alert-warning">${response.error}</div>`);
                     return;
                 }
-                
+                // Check for NaN results (for ANOVA and Chi-square)
+                if ((formData.test_type === 'anova' || formData.test_type === 'chi2') && (isNaN(response.statistic) || isNaN(response.p_value))) {
+                    let msg = formData.test_type === 'anova'
+                        ? 'Not enough data or variance in groups to perform ANOVA.'
+                        : 'Not enough data or variance to perform Chi-square test.';
+                    $('#test-results').html(`<div class="alert alert-warning">${msg}</div>`);
+                    return;
+                }
                 let results = `
                     <div class="alert alert-info">
                         <h6>Test Results</h6>
@@ -528,7 +573,6 @@ $(document).ready(function() {
                         <p>Interpretation: ${response.interpretation}</p>
                     </div>
                 `;
-                
                 $('#test-results').html(results);
             },
             error: function(xhr) {
