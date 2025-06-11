@@ -40,7 +40,7 @@ from sklearn.cluster import AgglomerativeClustering
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import KNeighborsClassifier
 import math
-from datasage.data_manager import DataManager
+from data_manager import DataManager
 from functools import wraps
 from scipy.stats import norm
 from pandas.api.types import CategoricalDtype
