@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
     FLASK_APP=app.py
 
 # Set working directory
-WORKDIR /datasage
+WORKDIR /app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -29,4 +29,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
-CMD ["flask", "run", "--host=0.0.0.0", "--port=8080"]
+CMD ["flask", "run", "app.py", "--host=0.0.0.0", "--port=8080"]
