@@ -29,4 +29,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
-CMD ["flask", "run", "--host=0.0.0.0", "--port=8080"]
+CMD ["sh", "-c", "flask run --host=0.0.0.0 --port=$PORT"]
