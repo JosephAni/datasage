@@ -1,0 +1,15 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'us-central1-docker.pkg.dev/datasage-462616/datasage/datasage:latest', '.']
+
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'us-central1-docker.pkg.dev/datasage-462616/datasage/datasage:latest']
+
+- name: 'gcr.io/cloud-builders/kubectl'
+  env:
+    - 'CLOUDSDK_COMPUTE_REGION=us-central1'
+    - 'CLOUDSDK_CONTAINER_CLUSTER=datasage-cluster'
+  args:
+    - 'apply'
+    - '-f'
+    - 'deployment.yml' 
