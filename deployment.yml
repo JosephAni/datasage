@@ -1,24 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: inventory-optimization-app
+  name: datasage-app
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: inventory-optimization
+      app: datasage
   template:
     metadata:
       labels:
-        app: inventory-optimization
+        app: datasage
     spec:
       containers:
       - name: inventory-optimization
-<<<<<<< HEAD
-        image: LOCATION-docker.pkg.dev/PROJECT_ID/REPOSITORY/IMAGE:TAG
-=======
-        image: us-central1-docker.pkg.dev/inventory-optimization-444419/inventory-optimization/inventory-optimization:latest
->>>>>>> feature
+        image: us-central1-docker.pkg.dev/inventory-optimization-444419/datasage/datasage:latest
         ports:
         - containerPort: 8080
         resources:

@@ -33,8 +33,8 @@ A Flask-based web application for inventory management and optimization, featuri
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/JosephAni/inventory-optimization.git
-cd inventory-optimization
+git clone https://github.com/JosephAni/datasage.git
+cd datasage
 ```
 
 1. Create and activate a virtual environment:
@@ -136,7 +136,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 Joseph Ani - [GitHub](https://github.com/JosephAni)
 
-Project Link: [https://github.com/JosephAni/inventory-optimization](https://github.com/JosephAni/inventory-optimization)
+Project Link: [https://github.com/JosephAni/datasage](https://github.com/JosephAni/datasage)
 
-# To activate platform run  nix-shell dev.nix
-
+## To activate platform run  nix-shell dev.nix

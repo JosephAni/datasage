@@ -4,14 +4,11 @@ FROM python:3.11-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PORT=8080
+    PORT=8080 \
+    FLASK_APP=app.py
 
 # Set working directory
-<<<<<<< HEAD
-WORKDIR /app
-=======
-WORKDIR /inventory-optimization
->>>>>>> feature
+WORKDIR /datasage
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -32,8 +29,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application
-<<<<<<< HEAD
-CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 app.py"]
-=======
-CMD ["sh", "-c", "streamlit run --server.port=$PORT --server.address=0.0.0.0 inventory_optimization.py"]
->>>>>>> feature
+CMD ["flask", "run", "--host=0.0.0.0", "--port=$PORT"]

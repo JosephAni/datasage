@@ -1,2 +1,2 @@
 run:
-	conda activate inventory-optimization && python app.py
+	conda activate datasage && python app.py
