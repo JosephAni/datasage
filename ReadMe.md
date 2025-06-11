@@ -79,6 +79,8 @@ Then run your app with:
 ./run.sh
 ```
 
+## To run docker docker build -t datasage
+
 1. Create a `.env` file with the following variables:
 
 ```env
