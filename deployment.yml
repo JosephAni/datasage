@@ -13,8 +13,8 @@ spec:
         app: datasage
     spec:
       containers:
-      - name: inventory-optimization
-        image: us-central1-docker.pkg.dev/inventory-optimization-444419/datasage/datasage:latest
+      - name: datasage
+        image: us-central1-docker.pkg.dev/datasage-462616/datasage/datasage:latest
         ports:
         - containerPort: 8080
         resources:
