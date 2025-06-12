@@ -19,14 +19,14 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements file
 COPY requirements.txt .
 
-# Install Python dependencies
+# Install Python dependencies (ensure gunicorn is in requirements.txt)
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
 
-# Expose port
+# Expose port (for Cloud Run or similar platforms)
 EXPOSE ${PORT}
 
-# Command to run the application
-CMD ["sh", "-c", "flask run --host=0.0.0.0 --port=$PORT"]
+# Command to run the application using Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "${FLASK_APP%.py}:app"]
