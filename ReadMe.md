@@ -95,7 +95,7 @@ DEBUG=True
 python app.py
 ```
 
-The application will be available at `http://localhost:8080`
+The application will be available at [http://localhost:8080](http://localhost:8080)
 
 ## Project Structure
 
@@ -141,3 +141,14 @@ Joseph Ani - [GitHub](https://github.com/JosephAni)
 Project Link: [https://github.com/JosephAni/datasage](https://github.com/JosephAni/datasage)
 
 ## To activate platform run  nix-shell dev.nix
+
+## Running with Docker
+
+To build and run the app using Docker (with the fixed base image):
+
+```bash
+docker build -t datasage .
+docker run -p 8080:8080 datasage
+```
+
+## The application will be available at [http://localhost:8080](http://localhost:8080)]
