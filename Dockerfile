@@ -29,4 +29,4 @@ COPY . .
 EXPOSE ${PORT}
 
 # Command to run the application using Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:${PORT}", "${FLASK_APP%.py}:app"]
+CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT} ${FLASK_APP%.py}:app"]
