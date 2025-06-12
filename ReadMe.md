@@ -1,4 +1,4 @@
-# Inventory Optimization
+# End-to-End Inventory Optimization & Data Science Platform
 
 A Flask-based web application for inventory management and optimization, featuring various tools for demand forecasting, safety stock calculation, and inventory analysis.
 
